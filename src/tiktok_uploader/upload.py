@@ -23,7 +23,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     TimeoutException,
-    NoSuchElementException
+    NoSuchElementException,
 )
 
 from tiktok_uploader.browsers import get_browser
@@ -77,7 +77,14 @@ def upload_video(
     )
 
     return upload_videos(
-        videos=[{"path": filename, "description": description, "schedule": schedule, "product_id": product_id}],
+        videos=[
+            {
+                "path": filename,
+                "description": description,
+                "schedule": schedule,
+                "product_id": product_id,
+            }
+        ],
         auth=auth,
         proxy=proxy,
         *args,
@@ -168,7 +175,7 @@ def upload_videos(
                 "Posting %s%s",
                 bold(video.get("path")),
                 (
-                    f'\n{" " * 15}with description: {bold(description)}'
+                    f"\n{' ' * 15}with description: {bold(description)}"
                     if description
                     else ""
                 ),
@@ -256,7 +263,9 @@ def complete_upload_form(
         The path to the video to upload
     """
     _go_to_upload(driver)
-    #  _remove_cookies_window(driver)
+    _remove_cookies_window(
+        driver
+    )  # Add this line to click the "Accept All Cookies" button
 
     upload_complete_event = threading.Event()
 
@@ -496,27 +505,38 @@ def _remove_cookies_window(driver) -> None:
     """
 
     logger.debug(green(f"Removing cookies window"))
-    cookies_banner = WebDriverWait(driver, config["implicit_wait"]).until(
-        EC.presence_of_element_located(
-            (By.TAG_NAME, config["selectors"]["upload"]["cookies_banner"]["banner"])
-        )
-    )
-
-    item = WebDriverWait(driver, config["implicit_wait"]).until(
-        EC.visibility_of(
-            cookies_banner.shadow_root.find_element(
-                By.CSS_SELECTOR,
-                config["selectors"]["upload"]["cookies_banner"]["button"],
+    try:
+        time.sleep(5)
+        # Wait for the cookies banner to be present
+        cookies_banner = WebDriverWait(driver, config["implicit_wait"]).until(
+            EC.presence_of_element_located(
+                (By.TAG_NAME, config["selectors"]["upload"]["cookies_banner"]["banner"])
             )
         )
-    )
 
-    # Wait that the Decline all button is clickable
-    decline_button = WebDriverWait(driver, config["implicit_wait"]).until(
-        EC.element_to_be_clickable(item.find_elements(By.TAG_NAME, "button")[0])
-    )
+        # Access the shadow root and find the "Allow All" button
+        shadow_root = cookies_banner.shadow_root
+        if shadow_root:
+            item = WebDriverWait(driver, config["implicit_wait"]).until(
+                EC.visibility_of(
+                    shadow_root.find_element(
+                        By.CSS_SELECTOR,
+                        config["selectors"]["upload"]["cookies_banner"]["button"],
+                    )
+                )
+            )
 
-    decline_button.click()
+            # Click the "Allow All" cookies button
+            accept_button = WebDriverWait(driver, config["implicit_wait"]).until(
+                EC.element_to_be_clickable(item.find_elements(By.TAG_NAME, "button")[0])
+            )
+            accept_button.click()  # Click the accept button
+            logger.debug(green("Cookies accepted"))
+        else:
+            logger.error("Shadow root not found for cookies banner.")
+
+    except Exception as e:
+        logger.error(f"Error while accepting cookies: {e}")
 
 
 def _remove_split_window(driver) -> None:
@@ -975,79 +995,114 @@ def _add_product_link(driver, product_id: str) -> None:
     """
     logger.debug(green(f"Attempting to add product link for ID: {product_id}..."))
     try:
-        wait = WebDriverWait(driver, 20) # Wait up to 20 seconds
+        wait = WebDriverWait(driver, 20)  # Wait up to 20 seconds
 
         # -- Step 1: Find and click the 'Add Product Link' button --
-        add_link_button_xpath = "//button[contains(@class, 'Button__root') and contains(., 'Add')]"
-        add_link_button = wait.until(EC.element_to_be_clickable((By.XPATH, add_link_button_xpath)))
+        add_link_button_xpath = (
+            "//button[contains(@class, 'Button__root') and contains(., 'Add')]"
+        )
+        add_link_button = wait.until(
+            EC.element_to_be_clickable((By.XPATH, add_link_button_xpath))
+        )
         # Optional: Scroll to the button if it might be off-screen
         # driver.execute_script("arguments[0].scrollIntoView(true);", add_link_button)
         # time.sleep(0.5) # Short pause after scrolling
         add_link_button.click()
         logger.debug(green("Clicked 'Add Product Link' button."))
-        time.sleep(1) # Wait for modal animation
+        time.sleep(1)  # Wait for modal animation
 
         # -- Step 2: Click the 'Next' button in the first modal (if it exists) --
         try:
-             first_next_button_xpath = "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Next']]"
-             # Ensure this button belongs to the correct modal context if multiple exist
-             first_next_button = wait.until(EC.element_to_be_clickable((By.XPATH, first_next_button_xpath)))
-             first_next_button.click()
-             logger.debug(green("Clicked first 'Next' button in modal."))
-             time.sleep(1) # Wait for the next part of the modal to load
+            first_next_button_xpath = "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Next']]"
+            # Ensure this button belongs to the correct modal context if multiple exist
+            first_next_button = wait.until(
+                EC.element_to_be_clickable((By.XPATH, first_next_button_xpath))
+            )
+            first_next_button.click()
+            logger.debug(green("Clicked first 'Next' button in modal."))
+            time.sleep(1)  # Wait for the next part of the modal to load
         except TimeoutException:
-             logger.debug("First 'Next' button not found or not needed, proceeding...")
-
+            logger.debug("First 'Next' button not found or not needed, proceeding...")
 
         # -- Step 3: Find search input, enter product ID, and press Enter --
         search_input_xpath = "//input[@placeholder='Search products']"
-        search_input = wait.until(EC.visibility_of_element_located((By.XPATH, search_input_xpath)))
+        search_input = wait.until(
+            EC.visibility_of_element_located((By.XPATH, search_input_xpath))
+        )
         search_input.clear()
         search_input.send_keys(product_id)
-        search_input.send_keys(Keys.RETURN) # Press Enter to search
+        search_input.send_keys(Keys.RETURN)  # Press Enter to search
         logger.debug(green(f"Entered product ID '{product_id}' and pressed Enter."))
         # Wait for search results - Replace sleep with explicit wait if possible
         # e.g., wait for a specific element in the results table to appear
-        time.sleep(3) # Increased wait time slightly
+        time.sleep(3)  # Increased wait time slightly
 
         # -- Step 4: Find and select the radio button for the product --
         # !!! CRITICAL: Verify and adjust this XPath based on actual HTML structure !!!
         # It assumes the product ID is visible within a span or div in the same table row (tr)
         product_radio_xpath = f"//tr[.//span[contains(text(), '{product_id}')] or .//div[contains(text(), '{product_id}')]]//input[@type='radio' and contains(@class, 'TUXRadioStandalone-input')]"
         logger.debug(f"Looking for radio button with XPath: {product_radio_xpath}")
-        product_radio = wait.until(EC.element_to_be_clickable((By.XPATH, product_radio_xpath)))
+        product_radio = wait.until(
+            EC.element_to_be_clickable((By.XPATH, product_radio_xpath))
+        )
         # Use JavaScript click for potentially troublesome radio buttons
         driver.execute_script("arguments[0].click();", product_radio)
         logger.debug(green(f"Selected product radio for ID: {product_id}"))
-        time.sleep(1) # Pause after selection
+        time.sleep(1)  # Pause after selection
 
         # -- Step 5: Find and click the 'Next' button (after selecting radio) --
-        second_next_button_xpath = "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Next']]"
+        second_next_button_xpath = (
+            "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Next']]"
+        )
         # Add more context if needed to distinguish this 'Next' button
-        second_next_button = wait.until(EC.element_to_be_clickable((By.XPATH, second_next_button_xpath)))
+        second_next_button = wait.until(
+            EC.element_to_be_clickable((By.XPATH, second_next_button_xpath))
+        )
         second_next_button.click()
         logger.debug(green("Clicked second 'Next' button."))
-        time.sleep(1) # Wait for the next modal/confirmation step
+        time.sleep(1)  # Wait for the next modal/confirmation step
 
         # -- Step 6: Find and click the final 'Add' button --
-        final_add_button_xpath = "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Add']]"
-        final_add_button = wait.until(EC.element_to_be_clickable((By.XPATH, final_add_button_xpath)))
+        final_add_button_xpath = (
+            "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Add']]"
+        )
+        final_add_button = wait.until(
+            EC.element_to_be_clickable((By.XPATH, final_add_button_xpath))
+        )
         final_add_button.click()
         logger.debug(green("Clicked final 'Add' button. Product link should be added."))
 
         # Wait for the modal to close (e.g., wait for the final 'Add' button to disappear)
-        wait.until(EC.invisibility_of_element_located((By.XPATH, final_add_button_xpath)))
+        wait.until(
+            EC.invisibility_of_element_located((By.XPATH, final_add_button_xpath))
+        )
         logger.debug(green("Product link modal closed."))
 
     except TimeoutException as e:
-        logger.error(red(f"Error: Timed out waiting for element during product link addition. XPath might be wrong or element didn't appear."))
+        logger.error(
+            red(
+                f"Error: Timed out waiting for element during product link addition. XPath might be wrong or element didn't appear."
+            )
+        )
         # logger.error(f"Timeout details: {e}")
         # Decide whether to raise error or continue upload without link
-        print(f"Warning: Failed to add product link {product_id} due to timeout. Continuing upload without link.")
+        print(
+            f"Warning: Failed to add product link {product_id} due to timeout. Continuing upload without link."
+        )
     except NoSuchElementException as e:
-        logger.error(red(f"Error: Could not find element during product link addition. XPath might be wrong."))
+        logger.error(
+            red(
+                f"Error: Could not find element during product link addition. XPath might be wrong."
+            )
+        )
         # logger.error(f"NoSuchElement details: {e}")
-        print(f"Warning: Failed to add product link {product_id} because an element was not found. Continuing upload without link.")
+        print(
+            f"Warning: Failed to add product link {product_id} because an element was not found. Continuing upload without link."
+        )
     except Exception as e:
-        logger.error(red(f"An unexpected error occurred while adding product link: {e}"))
-        print(f"Warning: An unexpected error occurred while adding product link {product_id}. Continuing upload without link.")
+        logger.error(
+            red(f"An unexpected error occurred while adding product link: {e}")
+        )
+        print(
+            f"Warning: An unexpected error occurred while adding product link {product_id}. Continuing upload without link."
+        )
