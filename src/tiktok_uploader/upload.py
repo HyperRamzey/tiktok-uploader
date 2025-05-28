@@ -229,7 +229,6 @@ def upload_videos(
         except Exception as exception:
             logger.error("Failed to upload %s", path)
             logger.error(exception)
-            failed.append(video)
 
         if on_complete is callable:  # calls the user-specified on-complete function
             on_complete(video)
