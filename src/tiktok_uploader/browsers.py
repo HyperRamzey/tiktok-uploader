@@ -1,18 +1,23 @@
-"""Gets the browser's given the user's input"""
+from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-
-import undetected_chromedriver as uc
-
+from selenium.webdriver.chrome.service import Service
 from tiktok_uploader import config
 from tiktok_uploader.proxy_auth_extension.proxy_auth_extension import (
     generate_proxy_auth_extension,
 )
+import os
+import logging
+from tiktok_uploader.utils import green
+
+logger = logging.getLogger(__name__)
 
 
-def get_browser(name: str = "chrome", options: ChromeOptions = None, **kwargs) -> uc.Chrome:
-    """
-    Gets a browser based on the name with the ability to pass in additional arguments
-    """
+def get_browser(
+    name: str = "chrome",
+    options: ChromeOptions = None,
+    browser_data_dir: str = None,
+    **kwargs,
+) -> webdriver.Chrome:
     if _clean_name(name) != "chrome":
         raise UnsupportedBrowserException(
             f"Unsupported browser: {name}. Only Chrome is supported."
@@ -20,7 +25,50 @@ def get_browser(name: str = "chrome", options: ChromeOptions = None, **kwargs) -
 
     browser_options = options or get_default_options(name=name, **kwargs)
 
-    driver = uc.Chrome(options=browser_options, use_subprocess=True, **kwargs)
+    if browser_data_dir:
+        if os.path.exists(browser_data_dir):
+            try:
+                import shutil
+
+                shutil.rmtree(browser_data_dir)
+                logger.debug(
+                    green(
+                        f"Cleared existing browser data directory: {browser_data_dir}"
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed to clear browser data directory: {e}")
+
+        os.makedirs(browser_data_dir, exist_ok=True)
+        browser_options.add_argument(f"--user-data-dir={browser_data_dir}")
+        logger.debug(green(f"Created fresh browser data directory: {browser_data_dir}"))
+
+    browser_options.add_argument("--ignore-gpu-blocklist")
+
+    browser_options.add_argument("--disable-application-cache")
+    browser_options.add_argument("--disable-cache")
+    browser_options.add_argument("--disable-offline-load-stale-cache")
+    browser_options.add_argument("--disk-cache-size=0")
+    browser_options.add_argument("--media-cache-size=0")
+    browser_options.add_argument("--disable-gpu-shader-disk-cache")
+    browser_options.add_argument("--disable-dev-shm-usage")
+    browser_options.add_argument("--no-sandbox")
+
+    service = Service()
+    driver = webdriver.Chrome(service=service, options=browser_options)
+
+    driver.execute_cdp_cmd("Network.clearBrowserCookies", {})
+    driver.execute_cdp_cmd("Network.clearBrowserCache", {})
+    driver.execute_cdp_cmd(
+        "Storage.clearDataForOrigin",
+        {
+            "origin": "*",
+            "storageTypes": "all",
+        },
+    )
+
+    script = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
 
     driver.implicitly_wait(config["implicit_wait"])
 
@@ -28,9 +76,6 @@ def get_browser(name: str = "chrome", options: ChromeOptions = None, **kwargs) -
 
 
 def get_default_options(name: str, **kwargs) -> ChromeOptions:
-    """
-    Gets the default options for each browser to help remain undetected
-    """
     name = _clean_name(name)
 
     if name == "chrome":
@@ -39,30 +84,46 @@ def get_default_options(name: str, **kwargs) -> ChromeOptions:
     raise UnsupportedBrowserException()
 
 
-def chrome_defaults(headless: bool = False, proxy: dict = None, **kwargs) -> ChromeOptions:
-    """
-    Creates Chrome with Options
-    """
-
+def chrome_defaults(
+    headless: bool = True, proxy: dict = None, **kwargs
+) -> ChromeOptions:
     options = ChromeOptions()
-
-    ## regular
+    options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--profile-directory=Default")
+    options.add_argument("--disable-notifications")
+    options.add_argument("--window-size=1320,2868")
+    options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--ignore-ssl-errors")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1"
+    )
 
-    ## experimental
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    mobile_emulation = {
+        "deviceMetrics": {"width": 1320, "height": 2868, "pixelRatio": 3.0},
+        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1",
+    }
+    options.add_experimental_option("mobileEmulation", mobile_emulation)
+
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation", "enable-logging"]
+    )
     options.add_experimental_option("useAutomationExtension", False)
+    options.add_experimental_option(
+        "prefs",
+        {
+            "credentials_enable_service": False,
+            "profile.password_manager_enabled": False,
+            "profile.default_content_setting_values.notifications": 2,
+        },
+    )
 
-    ## add english language to avoid languages translation error
     options.add_argument("--lang=en")
 
-    # headless
-    if headless:
-        options.add_argument("--headless=new")
     if proxy:
         if "user" in proxy.keys() and "pass" in proxy.keys():
-            # This can fail if you are executing the function more than once in the same time
             extension_file = "temp_proxy_auth_extension.zip"
             generate_proxy_auth_extension(
                 proxy["host"],
@@ -73,26 +134,15 @@ def chrome_defaults(headless: bool = False, proxy: dict = None, **kwargs) -> Chr
             )
             options.add_extension(extension_file)
         else:
-            options.add_argument(f'--proxy-server={proxy["host"]}:{proxy["port"]}')
+            options.add_argument(f"--proxy-server={proxy['host']}:{proxy['port']}")
 
     return options
 
 
-# Misc
 class UnsupportedBrowserException(Exception):
-    """
-    Browser is not supported by the library
-
-    Supported browsers are:
-        - Chrome
-    """
-
     def __init__(self, message=None):
         super().__init__(message or self.__doc__)
 
 
 def _clean_name(name: str) -> str:
-    """
-    Cleans the name of the browser to make it easier to use
-    """
     return name.strip().lower()
