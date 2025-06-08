@@ -201,7 +201,7 @@ def complete_upload_form(
     **kwargs,
 ) -> None:
     _go_to_upload(driver)
-    time.sleep(10)
+    time.sleep(2)
     _remove_cookies_window(driver)
 
     upload_complete_event = threading.Event()
@@ -376,7 +376,7 @@ def _set_video(driver, path: str = "", num_retries: int = 3, **kwargs) -> None:
 def _remove_cookies_window(driver) -> None:
     logger.debug(green(f"Removing cookies window"))
     try:
-        time.sleep(5)
+        time.sleep(2)
         cookies_banner = WebDriverWait(driver, config["implicit_wait"]).until(
             EC.presence_of_element_located(
                 (By.TAG_NAME, config["selectors"]["upload"]["cookies_banner"]["banner"])
@@ -450,7 +450,7 @@ def _set_interactivity(
     try:
         logger.debug(green("Setting interactivity settings"))
 
-        time.sleep(3)
+        time.sleep(2)
 
         comment_selectors = [
             config["selectors"]["upload"]["comment"],
@@ -632,7 +632,7 @@ def __time_picker(driver, hour: int, minute: int) -> None:
         "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
         minute_to_click,
     )
-    time.sleep(2)
+    time.sleep(1)
     minute_to_click.click()
 
     time_picker.click()
@@ -672,7 +672,7 @@ def _post_video(driver) -> None:
         driver.execute_script(
             "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", post
         )
-        time.sleep(2)
+        time.sleep(1)
 
         try:
             post.click()
@@ -867,7 +867,7 @@ def _add_product_link(driver, product_id: str) -> None:
         search_input.send_keys(product_id)
         search_input.send_keys(Keys.RETURN)
         logger.debug(green(f"Entered product ID '{product_id}' and pressed Enter."))
-        time.sleep(3)
+        time.sleep(2)
         product_radio_xpath = f"//tr[.//span[contains(text(), '{product_id}')] or .//div[contains(text(), '{product_id}')]]//input[@type='radio' and contains(@class, 'TUXRadioStandalone-input')]"
         logger.debug(f"Looking for radio button with XPath: {product_radio_xpath}")
         product_radio = wait.until(

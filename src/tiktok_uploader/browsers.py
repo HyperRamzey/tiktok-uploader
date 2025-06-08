@@ -48,9 +48,6 @@ def get_browser(
     service = Service()
     driver = webdriver.Chrome(service=service, options=browser_options)
 
-    # Add a delay to allow the browser to stabilize
-    time.sleep(2)
-
     try:
         driver.execute_cdp_cmd("Network.clearBrowserCookies", {})
         driver.execute_cdp_cmd("Network.clearBrowserCache", {})
@@ -87,6 +84,7 @@ def chrome_defaults(
     headless: bool = True, proxy: dict = None, **kwargs
 ) -> ChromeOptions:
     options = ChromeOptions()
+    options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--profile-directory=Default")
     options.add_argument("--disable-notifications")
@@ -94,7 +92,7 @@ def chrome_defaults(
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
     options.add_argument("--disable-infobars")
-    
+
     # --- Stability Flags for VMs/Docker ---
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
