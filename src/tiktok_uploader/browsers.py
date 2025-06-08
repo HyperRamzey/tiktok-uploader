@@ -102,6 +102,15 @@ def chrome_defaults(
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--disable-features=VizDisplayCompositor")
+    options.add_argument("--ignore-gpu-blocklist")
+    options.add_argument("--disable-gpu-compositing")
+    options.add_argument("--disable-gpu-rasterization")
+    options.add_argument("--disable-gpu-driver-bug-workarounds")
+    options.add_argument("--disable-accelerated-2d-canvas")
+    options.add_argument("--disable-accelerated-video-decode")
+    options.add_argument("--disable-accelerated-video-encode")
+    options.add_argument("--disable-accelerated-mjpeg-decode")
+    options.add_argument("--disable-accelerated-video")
     # --- End Stability Flags ---
 
     random_port = random.randint(30000, 40000)
