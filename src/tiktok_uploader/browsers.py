@@ -8,6 +8,8 @@ from tiktok_uploader.proxy_auth_extension.proxy_auth_extension import (
 import os
 import logging
 from tiktok_uploader.utils import green
+import random
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -43,32 +45,29 @@ def get_browser(
         browser_options.add_argument(f"--user-data-dir={browser_data_dir}")
         logger.debug(green(f"Created fresh browser data directory: {browser_data_dir}"))
 
-    browser_options.add_argument("--ignore-gpu-blocklist")
-
-    browser_options.add_argument("--disable-application-cache")
-    browser_options.add_argument("--disable-cache")
-    browser_options.add_argument("--disable-offline-load-stale-cache")
-    browser_options.add_argument("--disk-cache-size=0")
-    browser_options.add_argument("--media-cache-size=0")
-    browser_options.add_argument("--disable-gpu-shader-disk-cache")
-    browser_options.add_argument("--disable-dev-shm-usage")
-    browser_options.add_argument("--no-sandbox")
-
     service = Service()
     driver = webdriver.Chrome(service=service, options=browser_options)
 
-    driver.execute_cdp_cmd("Network.clearBrowserCookies", {})
-    driver.execute_cdp_cmd("Network.clearBrowserCache", {})
-    driver.execute_cdp_cmd(
-        "Storage.clearDataForOrigin",
-        {
-            "origin": "*",
-            "storageTypes": "all",
-        },
-    )
+    # Add a delay to allow the browser to stabilize
+    time.sleep(2)
 
-    script = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": script})
+    try:
+        driver.execute_cdp_cmd("Network.clearBrowserCookies", {})
+        driver.execute_cdp_cmd("Network.clearBrowserCache", {})
+        driver.execute_cdp_cmd(
+            "Storage.clearDataForOrigin",
+            {
+                "origin": "*",
+                "storageTypes": "all",
+            },
+        )
+
+        script = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument", {"source": script}
+        )
+    except Exception as e:
+        logger.error(f"Could not execute CDP commands, browser might have crashed: {e}")
 
     driver.implicitly_wait(config["implicit_wait"])
 
@@ -96,7 +95,17 @@ def chrome_defaults(
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
     options.add_argument("--disable-infobars")
-    options.add_argument("--remote-debugging-port=9222")
+    
+    # --- Stability Flags for VMs/Docker ---
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-features=VizDisplayCompositor")
+    # --- End Stability Flags ---
+
+    random_port = random.randint(30000, 40000)
+    options.add_argument(f"--remote-debugging-port={random_port}")
     options.add_argument(
         "user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1"
     )
