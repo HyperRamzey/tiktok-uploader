@@ -87,7 +87,6 @@ def chrome_defaults(
     headless: bool = True, proxy: dict = None, **kwargs
 ) -> ChromeOptions:
     options = ChromeOptions()
-    options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--profile-directory=Default")
     options.add_argument("--disable-notifications")
@@ -99,12 +98,7 @@ def chrome_defaults(
     # --- Stability Flags for VMs/Docker ---
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-features=VizDisplayCompositor")
     options.add_argument("--ignore-gpu-blocklist")
-    options.add_argument("--disable-gpu-compositing")
-    options.add_argument("--disable-gpu-rasterization")
     # --- End Stability Flags ---
 
     random_port = random.randint(30000, 40000)
