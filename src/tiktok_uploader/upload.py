@@ -45,7 +45,6 @@ def upload_video(
     cookies_str=None,
     proxy=None,
     product_id: Optional[str] = None,
-    *args,
     **kwargs,
 ):
     """
@@ -87,7 +86,6 @@ def upload_video(
         ],
         auth=auth,
         proxy=proxy,
-        *args,
         **kwargs,
     )
 
@@ -102,7 +100,6 @@ def upload_videos(
     headless=False,
     num_retries: int = 1,
     skip_split_window=False,
-    *args,
     **kwargs,
 ):
     """
@@ -147,8 +144,9 @@ def upload_videos(
             browser,
             "in headless mode" if headless else "",
         )
+        browser_options = kwargs.get('options', None)
         driver = get_browser(
-            name=browser, headless=headless, proxy=proxy, *args, **kwargs
+            name=browser, headless=headless, proxy=proxy, options=browser_options, **kwargs
         )
     else:
         logger.debug("Using user-defined browser agent")
@@ -223,7 +221,6 @@ def upload_videos(
                 product_id=product_id,
                 num_retries=num_retries,
                 headless=headless,
-                *args,
                 **kwargs,
             )
         except Exception as exception:
@@ -248,7 +245,6 @@ def complete_upload_form(
     product_id: Optional[str] = None,
     num_retries: int = 1,
     headless=False,
-    *args,
     **kwargs,
 ) -> None:
     """
@@ -803,6 +799,8 @@ def _check_valid_path(path: str) -> bool:
     """
     Returns whether or not the filetype is supported by TikTok
     """
+    if not path:
+        return False
     return exists(path) and path.split(".")[-1] in config["supported_file_types"]
 
 
