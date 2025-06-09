@@ -1,17 +1,6 @@
-"""
-`tiktok_uploader` module for uploading videos to TikTok
-
-Key Functions
--------------
-upload_video : Uploads a single TikTok video
-upload_videos : Uploads multiple TikTok videos
-"""
-
 from os.path import abspath, exists
 from typing import List, Optional
 import time
-import pytz
-import datetime
 import threading
 
 from selenium.webdriver.common.by import By
@@ -29,7 +18,14 @@ from selenium.common.exceptions import (
 from tiktok_uploader.browsers import get_browser
 from tiktok_uploader.auth import AuthBackend
 from tiktok_uploader import config, logger
-from tiktok_uploader.utils import bold, cyan, green, red
+from tiktok_uploader.utils import (
+    bold,
+    cyan,
+    green,
+    red,
+    clean_description,
+    truncate_string,
+)
 from tiktok_uploader.proxy_auth_extension.proxy_auth_extension import proxy_is_working
 
 
@@ -37,14 +33,12 @@ def upload_video(
     filename=None,
     description="",
     cookies="",
-    schedule: datetime.datetime = None,
     username="",
     password="",
     sessionid=None,
     cookies_list=None,
     cookies_str=None,
     proxy=None,
-    product_id: Optional[str] = None,
     browser_data_dir: str = None,
     **kwargs,
 ):
@@ -62,8 +56,6 @@ def upload_video(
             {
                 "path": filename,
                 "description": description,
-                "schedule": schedule,
-                "product_id": product_id,
             }
         ],
         auth=auth,
@@ -123,8 +115,6 @@ def upload_videos(
         try:
             path = abspath(video.get("path"))
             description = video.get("description", "")
-            schedule = video.get("schedule", None)
-            product_id = video.get("product_id", None)
 
             logger.debug(
                 "Posting %s%s",
@@ -141,37 +131,11 @@ def upload_videos(
                 failed.append(video)
                 continue
 
-            if schedule:
-                timezone = pytz.UTC
-                if schedule.tzinfo is None:
-                    schedule = schedule.astimezone(timezone)
-                elif int(schedule.utcoffset().total_seconds()) == 0:
-                    schedule = timezone.localize(schedule)
-                else:
-                    print(
-                        f"{schedule} is invalid, the schedule datetime must be naive or aware with UTC timezone, skipping"
-                    )
-                    failed.append(video)
-                    continue
-
-                valid_tiktok_minute_multiple = 5
-                schedule = _get_valid_schedule_minute(
-                    schedule, valid_tiktok_minute_multiple
-                )
-                if not _check_valid_schedule(schedule):
-                    print(
-                        f"{schedule} is invalid, the schedule datetime must be as least 20 minutes in the future, and a maximum of 10 days, skipping"
-                    )
-                    failed.append(video)
-                    continue
-
             complete_upload_form(
                 driver,
                 path,
                 description,
-                schedule,
                 skip_split_window,
-                product_id=product_id,
                 num_retries=num_retries,
                 headless=headless,
                 **kwargs,
@@ -193,51 +157,132 @@ def complete_upload_form(
     driver,
     path: str,
     description: str,
-    schedule: datetime.datetime,
     skip_split_window: bool,
-    product_id: Optional[str] = None,
     num_retries: int = 1,
     headless=False,
     **kwargs,
 ) -> None:
-    _go_to_upload(driver)
-    time.sleep(2)
-    _remove_cookies_window(driver)
+    logger.info(green(f"🚀 Starting upload process for: {path}"))
 
-    upload_complete_event = threading.Event()
+    try:
+        logger.info("Step 1: Navigating to upload page...")
+        _go_to_upload(driver)
+        time.sleep(0.5)
+        _remove_cookies_window(driver)
+        logger.info("Successfully navigated to upload page")
 
-    def upload_video():
-        _set_video(driver, path=path, **kwargs)
-        upload_complete_event.set()
+        logger.info("Step 2: Starting video upload...")
+        upload_complete_event = threading.Event()
+        upload_success = [False]
+        upload_error = [None]
 
-    upload_thread = threading.Thread(target=upload_video)
-    upload_thread.start()
+        def upload_video():
+            try:
+                logger.info("🔄 Uploading video file...")
+                _set_video(driver, path, **kwargs)
+                upload_success[0] = True
+                logger.info("Video upload completed successfully")
+            except Exception as e:
+                upload_error[0] = e
+                logger.error(f"❌ Video upload failed: {e}")
+            finally:
+                upload_complete_event.set()
 
-    upload_complete_event.wait()
+        upload_thread = threading.Thread(target=upload_video)
+        upload_thread.start()
 
-    if not skip_split_window:
-        _remove_split_window(driver)
-    _set_interactivity(driver, **kwargs)
-    _set_description(driver, description)
-    if schedule:
-        _set_schedule_video(driver, schedule)
-    if product_id:
-        _add_product_link(driver, product_id)
-    _post_video(driver)
+        upload_timeout = config.get("uploading_wait", 180)
+        logger.info(f" Waiting for upload to complete (timeout: {upload_timeout}s)...")
+        if not upload_complete_event.wait(timeout=upload_timeout):
+            logger.error("❌ Upload timeout exceeded")
+            raise Exception(f"Video upload timed out after {upload_timeout} seconds")
+
+        if upload_error[0]:
+            raise upload_error[0]
+
+        if not upload_success[0]:
+            logger.error("❌ Upload failed for unknown reason")
+            raise Exception("Video upload failed")
+
+        logger.info("✅ Upload completed successfully")
+
+        logger.info("Step 3: Setting video description...")
+        _set_description(driver, description)
+        logger.info("Description set successfully")
+
+        logger.info("Step 4: Configuring video settings...")
+        _set_interactivity(driver, **kwargs)
+        logger.info("Interactivity settings configured")
+
+        if not skip_split_window:
+            logger.info("Step 5: Handling split window...")
+            _remove_split_window(driver)
+            logger.info("Split window handled")
+
+        logger.info("Step 6: Publishing video...")
+        _post_video(driver)
+        logger.info("✅ Video published successfully!")
+
+    except Exception as e:
+        logger.error(f"❌ Upload failed: {e}")
+        if num_retries > 0:
+            logger.info(f"🔄 Retrying upload ({num_retries} attempts remaining)...")
+            complete_upload_form(
+                driver,
+                path,
+                description,
+                skip_split_window,
+                num_retries=num_retries - 1,
+                headless=headless,
+                **kwargs,
+            )
+        else:
+            raise FailedToUpload(f"Upload failed after all retries: {e}")
 
 
 def _go_to_upload(driver) -> None:
     logger.debug(green("Navigating to upload page"))
 
-    if driver.current_url != config["paths"]["upload"]:
-        driver.get(config["paths"]["upload"])
-    else:
-        _refresh_with_alert(driver)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            if driver.current_url != config["paths"]["upload"]:
+                driver.get(config["paths"]["upload"])
+            else:
+                _refresh_with_alert(driver)
 
-    root_selector = EC.presence_of_element_located((By.ID, "root"))
-    WebDriverWait(driver, config["explicit_wait"]).until(root_selector)
+            page_loaded = False
+            load_indicators = [
+                (By.ID, "root"),
+                (By.TAG_NAME, "body"),
+                (By.XPATH, "//div[contains(@class, 'upload')]"),
+                (By.XPATH, "//input[@type='file']"),
+            ]
 
-    driver.switch_to.default_content()
+            for by, selector in load_indicators:
+                try:
+                    WebDriverWait(driver, 15).until(
+                        EC.presence_of_element_located((by, selector))
+                    )
+                    page_loaded = True
+                    break
+                except:
+                    continue
+
+            if not page_loaded:
+                raise Exception("Upload page did not load properly")
+
+            driver.switch_to.default_content()
+            logger.debug(green("Successfully navigated to upload page"))
+            return
+
+        except Exception as e:
+            logger.warning(f"Upload navigation attempt {attempt + 1} failed: {e}")
+            if attempt == max_retries - 1:
+                raise Exception(
+                    f"Failed to navigate to upload page after {max_retries} attempts"
+                )
+            time.sleep(2**attempt)
 
 
 def _change_to_upload_iframe(driver) -> None:
@@ -254,156 +299,418 @@ def _set_description(driver, description: str) -> None:
 
     logger.debug(green("Setting description"))
 
-    description = description.encode("utf-8", "ignore").decode("utf-8")
+    description = clean_description(description)
+    description = truncate_string(description, config["max_description_length"])
+
+    if not description:
+        logger.debug("Empty description, skipping")
+        return
 
     saved_description = description
 
-    WebDriverWait(driver, config["implicit_wait"]).until(
-        EC.presence_of_element_located(
-            (By.XPATH, config["selectors"]["upload"]["description"])
-        )
-    )
+    description_selectors = [
+        "//div[@contenteditable='true']",
+        "//textarea[contains(@placeholder, 'description')]",
+        "//div[contains(@class, 'description')]//div[@contenteditable='true']",
+        "//div[contains(@class, 'editor')]//div[@contenteditable='true']",
+        "//div[@role='textbox']",
+    ]
 
-    desc = driver.find_element(By.XPATH, config["selectors"]["upload"]["description"])
+    desc_element = None
+    for selector in description_selectors:
+        try:
+            desc_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, selector))
+            )
+            if desc_element.is_displayed():
+                break
+        except:
+            continue
 
-    desc.click()
-
-    WebDriverWait(driver, config["explicit_wait"]).until(lambda driver: desc.text != "")
-
-    desc.send_keys(Keys.END)
-    _clear(desc)
-
-    WebDriverWait(driver, config["explicit_wait"]).until(lambda driver: desc.text == "")
-
-    desc.click()
-
-    time.sleep(1)
+    if not desc_element:
+        logger.error("Could not find description field")
+        return
 
     try:
+        desc_element.click()
+        WebDriverWait(driver, 10).until(lambda d: desc_element.text != "" or True)
+
+        desc_element.send_keys(Keys.CTRL + "a")
+        desc_element.send_keys(Keys.DELETE)
+        time.sleep(0.2)
+
         words = description.split(" ")
         for word in words:
-            if word[0] == "#":
-                desc.send_keys(word)
-                desc.send_keys(" " + Keys.BACKSPACE)
-                WebDriverWait(driver, config["implicit_wait"]).until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, config["selectors"]["upload"]["mention_box"])
+            if word.startswith("#"):
+                desc_element.send_keys(word)
+                desc_element.send_keys(" " + Keys.BACKSPACE)
+                try:
+                    WebDriverWait(driver, 3).until(
+                        EC.presence_of_element_located(
+                            (By.XPATH, config["selectors"]["upload"]["mention_box"])
+                        )
                     )
-                )
-                time.sleep(config["add_hashtag_wait"])
-                desc.send_keys(Keys.ENTER)
-            elif word[0] == "@":
-                logger.debug(green("- Adding Mention: " + word))
-                desc.send_keys(word)
-                desc.send_keys(" ")
-                time.sleep(1)
-                desc.send_keys(Keys.BACKSPACE)
+                    time.sleep(0.2)
+                    desc_element.send_keys(Keys.ENTER)
+                except:
+                    desc_element.send_keys(" ")
+            elif word.startswith("@"):
+                logger.debug(green(f"Adding mention: {word}"))
+                desc_element.send_keys(word)
+                desc_element.send_keys(" ")
+                time.sleep(0.2)
+                desc_element.send_keys(Keys.BACKSPACE)
 
-                WebDriverWait(driver, config["explicit_wait"]).until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, config["selectors"]["upload"]["mention_box_user_id"])
+                try:
+                    WebDriverWait(driver, 3).until(
+                        EC.presence_of_element_located(
+                            (
+                                By.XPATH,
+                                config["selectors"]["upload"]["mention_box_user_id"],
+                            )
+                        )
                     )
-                )
 
-                found = False
-                waiting_interval = 0.5
-                timeout = 5
-                start_time = time.time()
-
-                while not found and (time.time() - start_time < timeout):
-                    user_id_elements = driver.find_elements(
+                    user_elements = driver.find_elements(
                         By.XPATH, config["selectors"]["upload"]["mention_box_user_id"]
                     )
-                    time.sleep(1)
-
-                    for i in range(len(user_id_elements)):
-                        user_id_element = user_id_elements[i]
-                        if user_id_element and user_id_element.is_enabled:
-                            username = user_id_element.text.split(" ")[0]
+                    for i, user_element in enumerate(user_elements):
+                        if user_element and user_element.is_enabled:
+                            username = user_element.text.split(" ")[0]
                             if username.lower() == word[1:].lower():
-                                found = True
-                                print("Matching User found : Clicking User")
                                 for j in range(i):
-                                    desc.send_keys(Keys.DOWN)
-                                desc.send_keys(Keys.ENTER)
+                                    desc_element.send_keys(Keys.DOWN)
+                                desc_element.send_keys(Keys.ENTER)
                                 break
-
-                        if not found:
-                            print(
-                                f"No match. Waiting for {waiting_interval} seconds..."
-                            )
-                            time.sleep(waiting_interval)
-
+                    else:
+                        desc_element.send_keys(" ")
+                except:
+                    desc_element.send_keys(" ")
             else:
-                desc.send_keys(word + " ")
+                desc_element.send_keys(word + " ")
 
-    except Exception as exception:
-        print("Failed to set description: ", exception)
-        _clear(desc)
-        desc.send_keys(saved_description)
+        logger.debug(green("Description set successfully"))
+
+    except Exception as e:
+        logger.error(f"Failed to set description: {e}")
+        try:
+            _clear(desc_element)
+            desc_element.send_keys(saved_description)
+        except:
+            logger.error("Failed to set fallback description")
 
 
 def _clear(element) -> None:
     element.send_keys(2 * len(element.text) * Keys.BACKSPACE)
 
 
-def _set_video(driver, path: str = "", num_retries: int = 3, **kwargs) -> None:
-    logger.debug(green("Uploading video file"))
+def _set_video(driver, video: str, **kwargs) -> None:
+    logger.debug(green("Setting video"))
 
-    for _ in range(num_retries):
+    try:
+        upload_selectors = [
+            config["selectors"]["upload"]["upload"],
+            "//input[@type='file']",
+            "//input[contains(@accept, 'video')]",
+            "//input[contains(@accept, 'video/mp4')]",
+            "//input[contains(@accept, '.mp4')]",
+            "//div[contains(@class, 'upload')]//input[@type='file']",
+            "//div[contains(@class, 'file')]//input[@type='file']",
+            "//div[contains(@class, 'uploader')]//input[@type='file']",
+            "//div[contains(@class, 'upload-container')]//input[@type='file']",
+            "//div[contains(@class, 'file-input')]//input[@type='file']",
+            "//input[contains(@class, 'file-input')]",
+            "//input[contains(@class, 'upload-input')]",
+            "//input[contains(@name, 'file')]",
+            "//input[contains(@id, 'file')]",
+            "//input[contains(@id, 'upload')]",
+            "//*[@type='file']",
+        ]
+
+        upload_input = None
+
+        time.sleep(2)
+
+        for i, selector in enumerate(upload_selectors):
+            try:
+                logger.debug(
+                    f"Trying upload selector {i + 1}/{len(upload_selectors)}: {selector}"
+                )
+                elements = driver.find_elements(By.XPATH, selector)
+
+                for element in elements:
+                    try:
+                        if element.get_attribute("type") == "file":
+                            accept_attr = element.get_attribute("accept") or ""
+                            if (
+                                not accept_attr
+                                or "video" in accept_attr
+                                or "*" in accept_attr
+                                or ".mp4" in accept_attr
+                            ):
+                                upload_input = element
+                                logger.debug(
+                                    f"Found upload input with selector: {selector}"
+                                )
+                                break
+                    except Exception as e:
+                        logger.debug(f"Error checking element: {e}")
+                        continue
+
+                if upload_input:
+                    break
+
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
+                continue
+
+        if not upload_input:
+            try:
+                logger.debug("Trying JavaScript approach to find file input")
+                upload_input = driver.execute_script("""
+                    var inputs = document.querySelectorAll('input[type="file"]');
+                    for (var i = 0; i < inputs.length; i++) {
+                        var input = inputs[i];
+                        var accept = input.getAttribute('accept') || '';
+                        if (!accept || accept.includes('video') || accept.includes('*') || accept.includes('.mp4')) {
+                            return input;
+                        }
+                    }
+                    return null;
+                """)
+                if upload_input:
+                    logger.debug("Found upload input via JavaScript")
+            except Exception as e:
+                logger.debug(f"JavaScript approach failed: {e}")
+
+        if not upload_input:
+            try:
+                logger.debug("Final attempt: looking for any file input")
+                all_inputs = driver.find_elements(By.TAG_NAME, "input")
+                for inp in all_inputs:
+                    if inp.get_attribute("type") == "file":
+                        upload_input = inp
+                        logger.debug("Found fallback file input")
+                        break
+            except Exception as e:
+                logger.debug(f"Final attempt failed: {e}")
+
+        if not upload_input:
+            raise Exception("Could not find upload input after trying all methods")
+
         try:
-            driverWait = WebDriverWait(driver, config["explicit_wait"])
-            upload_boxWait = EC.presence_of_element_located(
-                (By.XPATH, config["selectors"]["upload"]["upload_video"])
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});", upload_input
             )
-            driverWait.until(upload_boxWait)
-            upload_box = driver.find_element(
-                By.XPATH, config["selectors"]["upload"]["upload_video"]
-            )
-            upload_box.send_keys(path)
-            process_confirmation = EC.presence_of_element_located(
-                (By.XPATH, config["selectors"]["upload"]["process_confirmation"])
-            )
-            WebDriverWait(driver, config["explicit_wait"]).until(process_confirmation)
-            return
-        except TimeoutException as exception:
-            print("TimeoutException occurred:\n", exception)
-        except Exception as exception:
-            print(exception)
-            raise FailedToUpload(exception)
+            time.sleep(0.5)
+
+            if not upload_input.is_displayed():
+                driver.execute_script(
+                    "arguments[0].style.display = 'block';", upload_input
+                )
+                driver.execute_script(
+                    "arguments[0].style.visibility = 'visible';", upload_input
+                )
+                driver.execute_script("arguments[0].style.opacity = '1';", upload_input)
+
+        except Exception as e:
+            logger.warning(f"Could not make upload input visible: {e}")
+
+        logger.debug(f"Sending file path to upload input: {video}")
+        upload_input.send_keys(video)
+
+        time.sleep(1)
+
+        processing_selectors = [
+            config["selectors"]["upload"]["processing"],
+            "//div[contains(@class, 'processing')]",
+            "//div[contains(@class, 'uploading')]",
+            "//div[contains(text(), 'Processing')]",
+            "//div[contains(text(), 'Uploading')]",
+            "//div[contains(@class, 'progress')]",
+            "//div[contains(@class, 'upload-progress')]",
+            "//div[contains(@class, 'file-upload')]",
+            "//div[contains(text(), 'Upload')]",
+            "//*[contains(text(), 'Processing')]",
+            "//*[contains(text(), 'Uploading')]",
+        ]
+
+        processing_found = False
+        for selector in processing_selectors:
+            try:
+                logger.debug(f"Waiting for processing indicator: {selector}")
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, selector))
+                )
+                processing_found = True
+                logger.debug(f"Found processing indicator: {selector}")
+                break
+            except:
+                continue
+
+        if not processing_found:
+            logger.warning("No processing indicator found, but continuing...")
+
+        complete_selectors = [
+            config["selectors"]["upload"]["complete"],
+            "//div[contains(@class, 'complete')]",
+            "//div[contains(@class, 'success')]",
+            "//div[contains(@class, 'uploaded')]",
+            "//div[contains(@class, 'finished')]",
+            "//div[contains(text(), 'Complete')]",
+            "//div[contains(text(), 'Success')]",
+            "//div[contains(text(), 'Uploaded')]",
+            "//div[contains(text(), 'Finished')]",
+            "//*[contains(text(), 'Complete')]",
+            "//*[contains(text(), 'Success')]",
+        ]
+
+        complete_found = False
+        for selector in complete_selectors:
+            try:
+                logger.debug(f"Waiting for completion indicator: {selector}")
+                WebDriverWait(driver, 120).until(  # Increased timeout to 2 minutes
+                    EC.presence_of_element_located((By.XPATH, selector))
+                )
+                complete_found = True
+                logger.debug(f"Found completion indicator: {selector}")
+                break
+            except:
+                continue
+
+        if not complete_found:
+            logger.warning("No completion indicator found, but video may have uploaded")
+
+        logger.debug(green("Video upload process completed"))
+
+    except Exception as e:
+        logger.error(f"Failed to upload video: {str(e)}")
+        try:
+            logger.debug(f"Failed to upload video: {str(e)}")
+        except:
+            pass
+        raise FailedToUpload(f"Failed to upload video: {str(e)}")
 
 
 def _remove_cookies_window(driver) -> None:
     logger.debug(green(f"Removing cookies window"))
     try:
-        time.sleep(2)
-        cookies_banner = WebDriverWait(driver, config["implicit_wait"]).until(
-            EC.presence_of_element_located(
-                (By.TAG_NAME, config["selectors"]["upload"]["cookies_banner"]["banner"])
-            )
-        )
+        time.sleep(0.5)
 
-        shadow_root = cookies_banner.shadow_root
-        if shadow_root:
-            item = WebDriverWait(driver, config["implicit_wait"]).until(
-                EC.visibility_of(
-                    shadow_root.find_element(
-                        By.CSS_SELECTOR,
-                        config["selectors"]["upload"]["cookies_banner"]["button"],
+        cookie_handled = False
+
+        try:
+            cookies_banner = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (
+                        By.TAG_NAME,
+                        config["selectors"]["upload"]["cookies_banner"]["banner"],
                     )
                 )
             )
 
-            accept_button = WebDriverWait(driver, config["implicit_wait"]).until(
-                EC.element_to_be_clickable(item.find_elements(By.TAG_NAME, "button")[0])
-            )
-            accept_button.click()
-            logger.debug(green("Cookies accepted"))
-        else:
-            logger.error("Shadow root not found for cookies banner.")
+            shadow_root = cookies_banner.shadow_root
+            if shadow_root:
+                item = WebDriverWait(driver, 5).until(
+                    EC.visibility_of(
+                        shadow_root.find_element(
+                            By.CSS_SELECTOR,
+                            config["selectors"]["upload"]["cookies_banner"]["button"],
+                        )
+                    )
+                )
+
+                accept_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable(
+                        item.find_elements(By.TAG_NAME, "button")[0]
+                    )
+                )
+                accept_button.click()
+                logger.debug(green("Cookies accepted via shadow root"))
+                cookie_handled = True
+            else:
+                logger.debug("Shadow root not found for cookies banner")
+        except Exception as e:
+            logger.debug(f"Shadow root approach failed: {e}")
+
+        if not cookie_handled:
+            cookie_button_selectors = [
+                "//button[contains(text(), 'Accept')]",
+                "//button[contains(text(), 'accept')]",
+                "//button[contains(text(), 'ACCEPT')]",
+                "//button[contains(text(), 'Allow')]",
+                "//button[contains(text(), 'OK')]",
+                "//button[contains(text(), 'Got it')]",
+                "//button[contains(@class, 'accept')]",
+                "//button[contains(@class, 'cookie')]",
+                "//div[contains(@class, 'cookie')]//button",
+                "//div[contains(@class, 'banner')]//button",
+                "//div[contains(@class, 'consent')]//button",
+                "//*[@role='button' and contains(text(), 'Accept')]",
+                "//*[@role='button' and contains(text(), 'OK')]",
+            ]
+
+            for selector in cookie_button_selectors:
+                try:
+                    button = WebDriverWait(driver, 3).until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    if button.is_displayed():
+                        button.click()
+                        logger.debug(
+                            green(f"Cookies accepted via selector: {selector}")
+                        )
+                        cookie_handled = True
+                        break
+                except:
+                    continue
+
+        if not cookie_handled:
+            try:
+                driver.execute_script("""
+                    var buttons = document.querySelectorAll('button, [role="button"]');
+                    for (var i = 0; i < buttons.length; i++) {
+                        var btn = buttons[i];
+                        var text = btn.textContent.toLowerCase();
+                        if (text.includes('accept') || text.includes('allow') || text.includes('ok') || text.includes('got it')) {
+                            btn.click();
+                            break;
+                        }
+                    }
+                """)
+                logger.debug(green("Cookies handled via JavaScript"))
+                cookie_handled = True
+            except Exception as e:
+                logger.debug(f"JavaScript approach failed: {e}")
+
+        if not cookie_handled:
+            try:
+                close_selectors = [
+                    "//button[contains(@class, 'close')]",
+                    "//button[contains(text(), 'Close')]",
+                    "//button[contains(text(), '×')]",
+                    "//div[contains(@class, 'close')]",
+                    "//*[@role='button' and contains(@aria-label, 'close')]",
+                ]
+
+                for selector in close_selectors:
+                    try:
+                        close_btn = driver.find_element(By.XPATH, selector)
+                        if close_btn.is_displayed():
+                            close_btn.click()
+                            logger.debug(green(f"Modal closed via: {selector}"))
+                            cookie_handled = True
+                            break
+                    except:
+                        continue
+            except Exception as e:
+                logger.debug(f"Close button approach failed: {e}")
+
+        if not cookie_handled:
+            logger.debug("No cookie banner found or already handled")
 
     except Exception as e:
-        logger.error(f"Error while accepting cookies: {e}")
+        logger.debug(f"Error while handling cookies (non-critical): {e}")
 
 
 def _remove_split_window(driver) -> None:
@@ -450,13 +757,68 @@ def _set_interactivity(
     try:
         logger.debug(green("Setting interactivity settings"))
 
-        time.sleep(2)
+        time.sleep(0.1)
+
+        show_more_selectors = [
+            "//div[contains(text(), 'Show more')]",
+            "//button[contains(text(), 'Show more')]",
+            "//div[contains(@class, 'show-more')]",
+            "//button[contains(@class, 'show-more')]",
+            "//div[contains(@class, 'more-options')]",
+            "//button[contains(@class, 'more-options')]",
+        ]
+
+        show_more_clicked = False
+        for selector in show_more_selectors:
+            try:
+                element = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, selector))
+                )
+                if element.is_displayed():
+                    try:
+                        element.click()
+                        show_more_clicked = True
+                        logger.debug(green("Successfully clicked 'Show more' button"))
+                        time.sleep(0.5)
+                        break
+                    except:
+                        try:
+                            driver.execute_script("arguments[0].click();", element)
+                            show_more_clicked = True
+                            logger.debug(
+                                green(
+                                    "Successfully clicked 'Show more' button using JavaScript"
+                                )
+                            )
+                            time.sleep(0.5)
+                            break
+                        except:
+                            ActionChains(driver).move_to_element(
+                                element
+                            ).click().perform()
+                            show_more_clicked = True
+                            logger.debug(
+                                green(
+                                    "Successfully clicked 'Show more' button using ActionChains"
+                                )
+                            )
+                            time.sleep(0.5)
+                            break
+            except:
+                continue
+
+        if not show_more_clicked:
+            logger.warning(
+                "Could not find 'Show more' button, trying to find settings directly"
+            )
 
         comment_selectors = [
             config["selectors"]["upload"]["comment"],
             "//div[contains(@class, 'comment')]//input[@type='checkbox']",
             "//div[contains(@class, 'comment')]//div[contains(@class, 'checkbox')]",
             "//div[contains(@class, 'comment')]//div[contains(@class, 'switch')]",
+            "//div[contains(text(), 'Comments')]//following::input[@type='checkbox']",
+            "//div[contains(text(), 'Comments')]//following::div[contains(@class, 'switch')]",
         ]
 
         stitch_selectors = [
@@ -464,6 +826,8 @@ def _set_interactivity(
             "//div[contains(@class, 'stitch')]//input[@type='checkbox']",
             "//div[contains(@class, 'stitch')]//div[contains(@class, 'checkbox')]",
             "//div[contains(@class, 'stitch')]//div[contains(@class, 'switch')]",
+            "//div[contains(text(), 'Stitch')]//following::input[@type='checkbox']",
+            "//div[contains(text(), 'Stitch')]//following::div[contains(@class, 'switch')]",
         ]
 
         duet_selectors = [
@@ -471,6 +835,8 @@ def _set_interactivity(
             "//div[contains(@class, 'duet')]//input[@type='checkbox']",
             "//div[contains(@class, 'duet')]//div[contains(@class, 'checkbox')]",
             "//div[contains(@class, 'duet')]//div[contains(@class, 'switch')]",
+            "//div[contains(text(), 'Duet')]//following::input[@type='checkbox']",
+            "//div[contains(text(), 'Duet')]//following::div[contains(@class, 'switch')]",
         ]
 
         def find_and_click_element(selectors, setting_name):
@@ -509,254 +875,96 @@ def _set_interactivity(
         pass
 
 
-def _set_schedule_video(driver, schedule: datetime.datetime) -> None:
-    logger.debug(green("Setting schedule"))
-
-    driver_timezone = __get_driver_timezone(driver)
-    schedule = schedule.astimezone(driver_timezone)
-
-    month = schedule.month
-    day = schedule.day
-    hour = schedule.hour
-    minute = schedule.minute
-
-    try:
-        switch = driver.find_element(
-            By.XPATH, config["selectors"]["schedule"]["switch"]
-        )
-        switch.click()
-        __date_picker(driver, month, day)
-        __time_picker(driver, hour, minute)
-    except Exception as e:
-        msg = f"Failed to set schedule: {e}"
-        logger.error(red(msg))
-        raise FailedToUpload()
-
-
-def __date_picker(driver, month: int, day: int) -> None:
-    logger.debug(green("Picking date"))
-
-    condition = EC.presence_of_element_located(
-        (By.XPATH, config["selectors"]["schedule"]["date_picker"])
-    )
-    date_picker = WebDriverWait(driver, config["implicit_wait"]).until(condition)
-    date_picker.click()
-
-    condition = EC.presence_of_element_located(
-        (By.XPATH, config["selectors"]["schedule"]["calendar"])
-    )
-    calendar = WebDriverWait(driver, config["implicit_wait"]).until(condition)
-
-    calendar_month = driver.find_element(
-        By.XPATH, config["selectors"]["schedule"]["calendar_month"]
-    ).text
-    n_calendar_month = datetime.datetime.strptime(calendar_month, "%B").month
-    if n_calendar_month != month:
-        if n_calendar_month < month:
-            arrow = driver.find_elements(
-                By.XPATH, config["selectors"]["schedule"]["calendar_arrows"]
-            )[-1]
-        else:
-            arrow = driver.find_elements(
-                By.XPATH, config["selectors"]["schedule"]["calendar_arrows"]
-            )[0]
-        arrow.click()
-    valid_days = driver.find_elements(
-        By.XPATH, config["selectors"]["schedule"]["calendar_valid_days"]
-    )
-
-    day_to_click = None
-    for day_option in valid_days:
-        if int(day_option.text) == day:
-            day_to_click = day_option
-            break
-    if day_to_click:
-        day_to_click.click()
-    else:
-        raise Exception("Day not found in calendar")
-
-    __verify_date_picked_is_correct(driver, month, day)
-
-
-def __verify_date_picked_is_correct(driver, month: int, day: int):
-    date_selected = driver.find_element(
-        By.XPATH, config["selectors"]["schedule"]["date_picker"]
-    ).text
-    date_selected_month = int(date_selected.split("-")[1])
-    date_selected_day = int(date_selected.split("-")[2])
-
-    if date_selected_month == month and date_selected_day == day:
-        logger.debug(green("Date picked correctly"))
-    else:
-        msg = f"Something went wrong with the date picker, expected {month}-{day} but got {date_selected_month}-{date_selected_day}"
-        logger.error(msg)
-        raise Exception(msg)
-
-
-def __time_picker(driver, hour: int, minute: int) -> None:
-    logger.debug(green("Picking time"))
-
-    condition = EC.presence_of_element_located(
-        (By.XPATH, config["selectors"]["schedule"]["time_picker"])
-    )
-    time_picker = WebDriverWait(driver, config["implicit_wait"]).until(condition)
-    time_picker.click()
-
-    condition = EC.presence_of_element_located(
-        (By.XPATH, config["selectors"]["schedule"]["time_picker_container"])
-    )
-    time_picker_container = WebDriverWait(driver, config["implicit_wait"]).until(
-        condition
-    )
-
-    hour_options = driver.find_elements(
-        By.XPATH, config["selectors"]["schedule"]["timepicker_hours"]
-    )
-    minute_options = driver.find_elements(
-        By.XPATH, config["selectors"]["schedule"]["timepicker_minutes"]
-    )
-
-    hour_to_click = hour_options[hour]
-    minute_option_correct_index = int(minute / 5)
-    minute_to_click = minute_options[minute_option_correct_index]
-
-    time.sleep(1)
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
-        hour_to_click,
-    )
-    time.sleep(1)
-    hour_to_click.click()
-
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
-        minute_to_click,
-    )
-    time.sleep(1)
-    minute_to_click.click()
-
-    time_picker.click()
-
-    time.sleep(0.5)
-    __verify_time_picked_is_correct(driver, hour, minute)
-
-
-def __verify_time_picked_is_correct(driver, hour: int, minute: int):
-    time_selected = driver.find_element(
-        By.XPATH, config["selectors"]["schedule"]["time_picker_text"]
-    ).text
-    time_selected_hour = int(time_selected.split(":")[0])
-    time_selected_minute = int(time_selected.split(":")[1])
-
-    if time_selected_hour == hour and time_selected_minute == minute:
-        logger.debug(green("Time picked correctly"))
-    else:
-        msg = (
-            f"Something went wrong with the time picker, "
-            f"expected {hour:02d}:{minute:02d} "
-            f"but got {time_selected_hour:02d}:{time_selected_minute:02d}"
-        )
-        raise Exception(msg)
-
-
 def _post_video(driver) -> None:
     logger.debug(green("Clicking the post button"))
 
     try:
-        post = WebDriverWait(driver, config["implicit_wait"]).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, config["selectors"]["upload"]["post"])
-            )
-        )
+        post_selectors = [
+            config["selectors"]["upload"]["post"],
+            "//button[contains(text(), 'Post')]",
+            "//button[contains(@class, 'post')]",
+            "//button[contains(@class, 'submit')]",
+            "//button[@type='submit']",
+            "//div[contains(@class, 'post')]//button",
+            "//div[contains(@class, 'submit')]//button",
+        ]
+
+        post_button = None
+        for selector in post_selectors:
+            try:
+                element = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, selector))
+                )
+                if element.is_displayed():
+                    post_button = element
+                    break
+            except:
+                continue
+
+        if not post_button:
+            raise Exception("Could not find post button")
 
         driver.execute_script(
-            "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", post
+            "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
+            post_button,
         )
-        time.sleep(1)
+        time.sleep(0.5)
 
-        try:
-            post.click()
-        except ElementClickInterceptedException:
-            logger.debug(green("Direct click failed, trying JavaScript click"))
-            driver.execute_script("arguments[0].click();", post)
-        except Exception:
-            logger.debug(
-                green("Both click methods failed, trying alternative selector")
-            )
-            driver.execute_script(
-                "document.querySelector(\"button[type='submit']\").click()"
-            )
+        click_success = False
+        click_methods = [
+            lambda: post_button.click(),
+            lambda: driver.execute_script("arguments[0].click();", post_button),
+            lambda: ActionChains(driver).move_to_element(post_button).click().perform(),
+            lambda: driver.execute_script(
+                "document.querySelector('button[type=\"submit\"]').click()"
+            ),
+        ]
 
-        post_confirmation = EC.presence_of_element_located(
-            (By.XPATH, config["selectors"]["upload"]["post_confirmation"])
-        )
-        WebDriverWait(driver, 5).until(post_confirmation)
+        for click_method in click_methods:
+            try:
+                click_method()
+                click_success = True
+                break
+            except:
+                continue
+
+        if not click_success:
+            raise Exception("All click methods failed")
+
+        confirmation_selectors = [
+            config["selectors"]["upload"]["post_confirmation"],
+            "//div[contains(@class, 'success')]",
+            "//div[contains(@class, 'complete')]",
+            "//div[contains(text(), 'Success')]",
+            "//div[contains(text(), 'Complete')]",
+            "//div[contains(text(), 'Posted')]",
+        ]
+
+        confirmation_found = False
+        for selector in confirmation_selectors:
+            try:
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.XPATH, selector))
+                )
+                confirmation_found = True
+                break
+            except:
+                continue
+
+        if not confirmation_found:
+            raise Exception("No post confirmation found")
 
         logger.debug(green("Video posted successfully"))
+
     except Exception as e:
         logger.error(f"Failed to post video: {str(e)}")
-        raise FailedToUpload("Failed to click post button or confirm upload")
+        raise FailedToUpload(f"Failed to post video: {str(e)}")
 
 
 def _check_valid_path(path: str) -> bool:
-    if not path:
-        return False
-    return exists(path) and path.split(".")[-1] in config["supported_file_types"]
-
-
-def _get_valid_schedule_minute(schedule, valid_multiple) -> datetime.datetime:
-    if _is_valid_schedule_minute(schedule.minute, valid_multiple):
-        return schedule
-    else:
-        return _set_valid_schedule_minute(schedule, valid_multiple)
-
-
-def _is_valid_schedule_minute(minute, valid_multiple) -> bool:
-    if minute % valid_multiple != 0:
-        return False
-    else:
+    if exists(path):
         return True
-
-
-def _set_valid_schedule_minute(schedule, valid_multiple) -> datetime.datetime:
-    minute = schedule.minute
-
-    remainder = minute % valid_multiple
-    integers_to_valid_multiple = 5 - remainder
-    schedule += datetime.timedelta(minutes=integers_to_valid_multiple)
-
-    return schedule
-
-
-def _check_valid_schedule(schedule: datetime.datetime) -> bool:
-    valid_tiktok_minute_multiple = 5
-    margin_to_complete_upload_form = 5
-
-    datetime_utc_now = pytz.UTC.localize(datetime.datetime.utcnow())
-    min_datetime_tiktok_valid = datetime_utc_now + datetime.timedelta(minutes=15)
-    min_datetime_tiktok_valid += datetime.timedelta(
-        minutes=margin_to_complete_upload_form
-    )
-    max_datetime_tiktok_valid = datetime_utc_now + datetime.timedelta(days=10)
-    if schedule < min_datetime_tiktok_valid or schedule > max_datetime_tiktok_valid:
-        return False
-    elif not _is_valid_schedule_minute(schedule.minute, valid_tiktok_minute_multiple):
-        return False
-    else:
-        return True
-
-
-def _get_splice_index(
-    nearest_mention: int, nearest_hashtag: int, description: str
-) -> int:
-    if nearest_mention == -1 and nearest_hashtag == -1:
-        return len(description)
-    elif nearest_hashtag == -1:
-        return nearest_mention
-    elif nearest_mention == -1:
-        return nearest_hashtag
-    else:
-        return min(nearest_mention, nearest_hashtag)
+    return False
 
 
 def _convert_videos_dict(videos_list_of_dictionaries) -> List:
@@ -810,11 +1018,11 @@ def _convert_videos_dict(videos_list_of_dictionaries) -> List:
     return return_list
 
 
-def __get_driver_timezone(driver) -> pytz.timezone:
+def __get_driver_timezone(driver):
     timezone_str = driver.execute_script(
         "return Intl.DateTimeFormat().resolvedOptions().timeZone"
     )
-    return pytz.timezone(timezone_str)
+    return timezone_str
 
 
 def _refresh_with_alert(driver) -> None:
@@ -834,92 +1042,3 @@ class DescriptionTooLong(Exception):
 class FailedToUpload(Exception):
     def __init__(self, message=None):
         super().__init__(message or self.__doc__)
-
-
-def _add_product_link(driver, product_id: str) -> None:
-    logger.debug(green(f"Attempting to add product link for ID: {product_id}..."))
-    try:
-        wait = WebDriverWait(driver, 20)
-        add_link_button_xpath = (
-            "//button[contains(@class, 'Button__root') and contains(., 'Add')]"
-        )
-        add_link_button = wait.until(
-            EC.element_to_be_clickable((By.XPATH, add_link_button_xpath))
-        )
-        add_link_button.click()
-        logger.debug(green("Clicked 'Add Product Link' button."))
-        time.sleep(1)
-        try:
-            first_next_button_xpath = "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Next']]"
-            first_next_button = wait.until(
-                EC.element_to_be_clickable((By.XPATH, first_next_button_xpath))
-            )
-            first_next_button.click()
-            logger.debug(green("Clicked first 'Next' button in modal."))
-            time.sleep(1)
-        except TimeoutException:
-            logger.debug("First 'Next' button not found or not needed, proceeding...")
-        search_input_xpath = "//input[@placeholder='Search products']"
-        search_input = wait.until(
-            EC.visibility_of_element_located((By.XPATH, search_input_xpath))
-        )
-        search_input.clear()
-        search_input.send_keys(product_id)
-        search_input.send_keys(Keys.RETURN)
-        logger.debug(green(f"Entered product ID '{product_id}' and pressed Enter."))
-        time.sleep(2)
-        product_radio_xpath = f"//tr[.//span[contains(text(), '{product_id}')] or .//div[contains(text(), '{product_id}')]]//input[@type='radio' and contains(@class, 'TUXRadioStandalone-input')]"
-        logger.debug(f"Looking for radio button with XPath: {product_radio_xpath}")
-        product_radio = wait.until(
-            EC.element_to_be_clickable((By.XPATH, product_radio_xpath))
-        )
-        driver.execute_script("arguments[0].click();", product_radio)
-        logger.debug(green(f"Selected product radio for ID: {product_id}"))
-        time.sleep(1)
-        second_next_button_xpath = (
-            "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Next']]"
-        )
-        second_next_button = wait.until(
-            EC.element_to_be_clickable((By.XPATH, second_next_button_xpath))
-        )
-        second_next_button.click()
-        logger.debug(green("Clicked second 'Next' button."))
-        time.sleep(1)
-        final_add_button_xpath = (
-            "//button[contains(@class, 'TUXButton--primary') and .//div[text()='Add']]"
-        )
-        final_add_button = wait.until(
-            EC.element_to_be_clickable((By.XPATH, final_add_button_xpath))
-        )
-        final_add_button.click()
-        logger.debug(green("Clicked final 'Add' button. Product link should be added."))
-        wait.until(
-            EC.invisibility_of_element_located((By.XPATH, final_add_button_xpath))
-        )
-        logger.debug(green("Product link modal closed."))
-
-    except TimeoutException as e:
-        logger.error(
-            red(
-                f"Error: Timed out waiting for element during product link addition. XPath might be wrong or element didn't appear."
-            )
-        )
-        print(
-            f"Warning: Failed to add product link {product_id} due to timeout. Continuing upload without link."
-        )
-    except NoSuchElementException as e:
-        logger.error(
-            red(
-                f"Error: Could not find element during product link addition. XPath might be wrong."
-            )
-        )
-        print(
-            f"Warning: Failed to add product link {product_id} because an element was not found. Continuing upload without link."
-        )
-    except Exception as e:
-        logger.error(
-            red(f"An unexpected error occurred while adding product link: {e}")
-        )
-        print(
-            f"Warning: An unexpected error occurred while adding product link {product_id}. Continuing upload without link."
-        )

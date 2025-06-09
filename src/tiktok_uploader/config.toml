@@ -1,23 +1,16 @@
-# TikTok Uploader Default Configuation File
-
 headless = true
 quit_on_end = true
-
-# Messing around with inputs
 valid_path_names = ["path", "filename", "video", "video_path"]
 valid_descriptions = ["description", "desc", "caption"]
+implicit_wait = 5
+explicit_wait = 60
+uploading_wait = 180
 
-# Selenium Webdriver Waits
-implicit_wait = 5  # seconds
-explicit_wait = 60 # seconds
-uploading_wait = 180 # seconds
+add_hashtag_wait = 5
 
-# Wait time between adding hashtags
-add_hashtag_wait = 5 # seconds
+supported_file_types = ["mp4", "mov", "avi", "wmv", "flv", "webm", "mkv", "m4v", "3gp", "3g2", "gif", "ts"]
 
-supported_file_types = ["mp4", "mov", "avi", "wmv", "flv", "webm", "mkv", "m4v", "3gp", "3g2", "gif"]
-
-max_description_length = 150 # characters
+max_description_length = 150
 
 [paths]
 main = "https://www.tiktok.com/"
@@ -25,27 +18,28 @@ login = "https://www.tiktok.com/login/phone-or-email/email"
 upload = "https://www.tiktok.com/creator-center/upload?lang=en"
 
 [disguising]
-user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+user_agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Mobile/15E148 Safari/604.1'
 
-[selectors] # Selenium XPATH selectors
+[selectors]
 
 	[selectors.login]
-	username_field = "//input[@name=\"username\"]"
-	password_field = "//input[@type=\"password\"]"
-	login_button = "//button[@type=\"submit\"]"
+	username_field = "//input[@name='username' or @name='email']"
+	password_field = "//input[@type='password']"
+	login_button = "//button[@type='submit' or contains(text(), 'Log in')]"
 	
-	alert_user_if_failed = true # sends an alert and waits instead of failing
+	alert_user_if_failed = true
 	
-	cookie_of_interest = "sessionid" # cookie to check if login was successful
+	cookie_of_interest = "sessionid"
 	
 	[selectors.upload]
 	iframe = "//iframe"
 	
 	split_window = "//button[./div[text()='Not now']]"
-	upload_video = "//input[@type='file']"
+	upload = "//input[@type='file'] | //input[contains(@accept, 'video')]"
 	upload_finished = "//div[contains(@class, 'btn-cancel')]"
  	upload_confirmation = "//div[@title]"
- 	process_confirmation = "//div[contains(@class, 'resolution-label-text')]"
+ 	processing = "//div[contains(@class, 'processing')] | //div[contains(@class, 'uploading')] | //div[contains(text(), 'Processing')] | //div[contains(text(), 'Uploading')] | //div[contains(@class, 'progress')]"
+ 	complete = "//div[contains(@class, 'complete')] | //div[contains(@class, 'success')] | //div[contains(text(), 'Complete')] | //div[contains(text(), 'Success')]"
 	description = "//div[@contenteditable='true']"
 
 	visibility = "//div[@class='tiktok-select-selector']"
@@ -54,28 +48,12 @@ user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 	mention_box = "//div[contains(@class, 'mention-list-popover')]"
 	mention_box_user_id = "//span[contains(@class, 'user-id')]"
 
-	comment = "//label[.='Comment']/following-sibling::div/input"
-	duet = "//label[.='Duet']/following-sibling::div/input"
-	stitch = "//label[.='Stitch']/following-sibling::div/input"
+	comment = "//label[.='Comment']/following-sibling::div/input | //div[contains(text(), 'Comments')]//following::input[@type='checkbox']"
+	duet = "//label[.='Duet']/following-sibling::div/input | //div[contains(text(), 'Duet')]//following::input[@type='checkbox']"
+	stitch = "//label[.='Stitch']/following-sibling::div/input | //div[contains(text(), 'Stitch')]//following::input[@type='checkbox']"
 
-	post = "//button[@data-e2e='post_video_button']"
-	post_confirmation = "//div[contains(text(), 'Your video has been uploaded') or contains(text(), '视频已发布')]"
-
-
-	[selectors.schedule]
-	switch = "//*[@id='tux-1']"
-
-	date_picker = "//div[contains(@class, 'date-picker-input')]"
-	calendar = "//div[contains(@class, 'calendar-wrapper')]"
-	calendar_month = "//span[contains(@class, 'month-title')]"
-	calendar_valid_days = "//div[@class='jsx-4172176419 days-wrapper']//span[contains(@class, 'day') and contains(@class, 'valid')]"
-	calendar_arrows = "//span[contains(@class, 'arrow')]"  # first last, second next
-
-	time_picker = "//div[contains(@class, 'time-picker-input')]"
-	time_picker_text = "//div[contains(@class, 'time-picker-input')]/*[1]"
-	time_picker_container = "//div[@class='tiktok-timepicker-time-picker-container']"
-	timepicker_hours = "//span[contains(@class, 'tiktok-timepicker-left')]"
-	timepicker_minutes = "//span[contains(@class, 'tiktok-timepicker-right')]"
+	post = "//button[@data-e2e='post_video_button'] | //button[contains(text(), 'Post')] | //button[contains(@class, 'post')] | //button[@type='submit']"
+	post_confirmation = "//div[contains(text(), 'Your video has been uploaded') or contains(text(), '视频已发布') or contains(@class, 'success') or contains(@class, 'complete') or contains(text(), 'Posted')]"
 
 	[selectors.upload.cookies_banner]
 		banner = "tiktok-cookie-banner"

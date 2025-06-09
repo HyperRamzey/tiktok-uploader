@@ -1,4 +1,5 @@
 """Handles authentication for TikTokUploader"""
+
 from http import cookiejar
 from time import time, sleep
 
@@ -13,10 +14,6 @@ from tiktok_uploader.utils import green
 
 
 class AuthBackend:
-    """
-    Handles authentication for TikTokUploader
-    """
-
     username: str
     password: str
     cookies: list
@@ -30,30 +27,28 @@ class AuthBackend:
         cookies_str=None,
         sessionid: str = None,
     ):
-        """
-        Creates the authentication backend
-
-        Keyword arguments:
-        - username -> the accounts's username or email
-        - password -> the account's password
-
-        - cookies -> a list of cookie dictionaries of cookies which is Selenium-compatible
-        """
         if (username and not password) or (password and not username):
-            raise InsufficientAuth()
+            logger.error("Both username and password must be provided for login.")
+            raise InsufficientAuth("Both username and password must be provided.")
 
-        self.cookies = self.get_cookies(path=cookies) if cookies else []
-        self.cookies += self.get_cookies(cookies_str=cookies_str) if cookies_str else []
-        self.cookies += cookies_list if cookies_list else []
-        self.cookies += [{"name": "sessionid", "value": sessionid}] if sessionid else []
+        self.cookies = []
+        if cookies:
+            self.cookies += self.get_cookies(path=cookies)
+        if cookies_str:
+            self.cookies += self.get_cookies(cookies_str=cookies_str)
+        if cookies_list:
+            self.cookies += cookies_list
+        if sessionid:
+            self.cookies += [{"name": "sessionid", "value": sessionid}]
 
         if not (self.cookies or (username and password)):
-            raise InsufficientAuth()
+            logger.error("No valid authentication method provided.")
+            raise InsufficientAuth("No valid authentication method provided.")
 
         self.username = username
         self.password = password
 
-        if cookies:
+        if self.cookies:
             logger.debug(green("Authenticating browser with cookies"))
         elif username and password:
             logger.debug(green("Authenticating browser with username and password"))
@@ -63,10 +58,6 @@ class AuthBackend:
             logger.debug(green("Authenticating browser with cookies_list"))
 
     def authenticate_agent(self, driver):
-        """
-        Authenticates the agent using the browser backend
-        """
-        # tries to use cookies
         if not self.cookies and self.username and self.password:
             self.cookies = login(driver, username=self.username, password=self.password)
 
@@ -81,56 +72,46 @@ class AuthBackend:
         for cookie in self.cookies:
             try:
                 driver.add_cookie(cookie)
-            except Exception as _:
-                logger.error("Failed to add cookie %s", cookie)
+            except Exception as e:
+                logger.error(f"Failed to add cookie {cookie}: {e}")
 
         return driver
 
-    def get_cookies(self, path: str = None, cookies_str: str = None) -> dict:
-        """
-        Gets cookies from the passed file using the netscape standard
-        """
-        if path:
-            with open(path, "r", encoding="utf-8") as file:
-                lines = file.read().split("\n")
-        else:
-            lines = cookies_str.split("\n")
-
-        return_cookies = []
-        for line in lines:
-            split = line.split("\t")
-            if len(split) < 6:
-                continue
-
-            split = [x.strip() for x in split]
-
-            try:
-                split[4] = int(split[4])
-            except ValueError:
-                split[4] = None
-
-            return_cookies.append(
-                {
+    def get_cookies(self, path: str = None, cookies_str: str = None) -> list:
+        cookies = []
+        try:
+            if path:
+                with open(path, "r", encoding="utf-8") as file:
+                    lines = file.read().splitlines()
+            elif cookies_str:
+                lines = cookies_str.splitlines()
+            else:
+                return cookies
+            for line in lines:
+                if not line or line.startswith("#"):
+                    continue
+                split = line.split("\t")
+                if len(split) < 7:
+                    continue
+                try:
+                    expiry = int(split[4])
+                except ValueError:
+                    expiry = None
+                cookie = {
                     "name": split[5],
                     "value": split[6],
                     "domain": split[0],
                     "path": split[2],
                 }
-            )
-
-            if split[4]:
-                return_cookies[-1]["expiry"] = split[4]
-        return return_cookies
+                if expiry:
+                    cookie["expiry"] = expiry
+                cookies.append(cookie)
+        except Exception as e:
+            logger.error(f"Failed to parse cookies: {e}")
+        return cookies
 
 
 def login_accounts(driver=None, accounts=[(None, None)], *args, **kwargs) -> list:
-    """
-    Authenticates the accounts using the browser backend and saves the required credentials
-
-    Keyword arguments:
-    - driver -> the webdriver to use
-    - accounts -> a list of tuples of the form (username, password)
-    """
     driver = driver or get_browser(headless=False, *args, **kwargs)
 
     cookies = {}
@@ -143,24 +124,12 @@ def login_accounts(driver=None, accounts=[(None, None)], *args, **kwargs) -> lis
 
 
 def login(driver, username: str, password: str):
-    """
-    Logs in the user using the email and password
-    """
     assert username and password, "Username and password are required"
-
-    # checks if the browser is on TikTok
     if not config["paths"]["main"] in driver.current_url:
         driver.get(config["paths"]["main"])
-
-    # checks if the user is already logged in
     if driver.get_cookie(config["selectors"]["login"]["cookie_of_interest"]):
-        # clears the existing cookies
         driver.delete_all_cookies()
-
-    # goes to the login site
     driver.get(config["paths"]["login"])
-
-    # selects and fills the login and the password
     username_field = WebDriverWait(driver, config["explicit_wait"]).until(
         EC.presence_of_element_located(
             (By.XPATH, config["selectors"]["login"]["username_field"])
@@ -175,20 +144,17 @@ def login(driver, username: str, password: str):
     password_field.clear()
     password_field.send_keys(password)
 
-    # submits the form
     submit = driver.find_element(By.XPATH, config["selectors"]["login"]["login_button"])
     submit.click()
 
     print(f"Complete the captcha for {username}")
 
-    # Wait until the session id cookie is set
     start_time = time()
     while not driver.get_cookie(config["selectors"]["login"]["cookie_of_interest"]):
         sleep(0.5)
         if time() - start_time > config["explicit_wait"]:
-            raise InsufficientAuth()  # TODO: Make this something more real
+            raise InsufficientAuth()
 
-    # wait until the url changes
     WebDriverWait(driver, config["explicit_wait"]).until(
         EC.url_changes(config["paths"]["login"])
     )
@@ -197,13 +163,8 @@ def login(driver, username: str, password: str):
 
 
 def get_username_and_password(login_info: tuple or dict):
-    """
-    Parses the input into a username and password
-    """
     if not isinstance(login_info, dict):
         return login_info[0], login_info[1]
-
-    # checks if they used email or username
     if "email" in login_info:
         return login_info["email"], login_info["password"]
     elif "username" in login_info:
@@ -213,10 +174,6 @@ def get_username_and_password(login_info: tuple or dict):
 
 
 def save_cookies(path, cookies: list):
-    """
-    Saves the cookies to a netscape file
-    """
-    # saves the cookies to a file
     cookie_jar = cookiejar.MozillaCookieJar(path)
     cookie_jar.load()
 
@@ -227,18 +184,5 @@ def save_cookies(path, cookies: list):
 
 
 class InsufficientAuth(Exception):
-    """
-    Insufficient authentication:
-
-    > TikTok uses cookies to keep track of the user's authentication or session.
-
-    Either:
-        - Use a cookies file passed as the `cookies` argument
-            - easily obtained using https://github.com/kairi003/Get-cookies.txt-LOCALLY
-        - Use a cookies list passed as the `cookies_list` argument
-            - can be obtained from your browser's developer tools under storage -> cookies
-            - only the `sessionid` cookie is required
-    """
-
     def __init__(self, message=None):
         super().__init__(message or self.__doc__)

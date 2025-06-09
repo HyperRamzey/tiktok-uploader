@@ -88,26 +88,26 @@ def chrome_defaults(
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--profile-directory=Default")
     options.add_argument("--disable-notifications")
-    options.add_argument("--window-size=1320,2868")
+    options.add_argument("--window-size=1290,2796")
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
     options.add_argument("--disable-infobars")
-
-    # --- Stability Flags for VMs/Docker ---
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--ignore-gpu-blocklist")
-    # --- End Stability Flags ---
 
     random_port = random.randint(30000, 40000)
     options.add_argument(f"--remote-debugging-port={random_port}")
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1"
-    )
+    user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+    options.add_argument(f"user-agent={user_agent}")
 
     mobile_emulation = {
-        "deviceMetrics": {"width": 1320, "height": 2868, "pixelRatio": 3.0},
-        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1",
+        "deviceMetrics": {
+            "width": 1170,
+            "height": 2532,
+            "pixelRatio": 3.0,
+            "mobile": True,
+            "touch": True,
+        },
+        "userAgent": user_agent,
     }
     options.add_experimental_option("mobileEmulation", mobile_emulation)
 
@@ -121,10 +121,18 @@ def chrome_defaults(
             "credentials_enable_service": False,
             "profile.password_manager_enabled": False,
             "profile.default_content_setting_values.notifications": 2,
+            "profile.managed_default_content_settings.images": 1,
+            "profile.default_content_setting_values.cookies": 1,
+            "profile.managed_default_content_settings.javascript": 1,
         },
     )
 
     options.add_argument("--lang=en")
+    options.add_argument("--disable-blink-features")
+    options.add_argument("--disable-features=IsolateOrigins,site-per-process")
+    options.add_argument("--disable-site-isolation-trials")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--disable-features=UserAgentClientHint")
 
     if proxy:
         if "user" in proxy.keys() and "pass" in proxy.keys():
