@@ -6,44 +6,40 @@ import os
 import time
 import random
 from typing import List, Optional
+from colorama import Fore, Style, init
 
-HEADER = "\033[95m"
-OKBLUE = "\033[94m"
-OKCYAN = "\033[96m"
-OKGREEN = "\033[92m"
-WARNING = "\033[93m"
-FAIL = "\033[91m"
-ENDC = "\033[0m"
-BOLD = "\033[1m"
-UNDERLINE = "\033[4m"
+init(autoreset=True)
 
 
 def bold(to_bold: str) -> str:
-    return BOLD + to_bold + ENDC
+    return Style.BRIGHT + to_bold
 
 
 def green(to_green: str) -> str:
-    return OKGREEN + to_green + ENDC
+    return Fore.GREEN + to_green
 
 
 def red(to_red: str) -> str:
-    return FAIL + to_red + ENDC
+    return Fore.RED + to_red
 
 
 def cyan(to_cyan: str) -> str:
-    return OKCYAN + to_cyan + ENDC
+    return Fore.CYAN + to_cyan
 
 
 def blue(to_blue: str) -> str:
-    return OKBLUE + to_blue + ENDC
+    return Fore.BLUE + to_blue
 
 
 def yellow(to_yellow: str) -> str:
-    return WARNING + to_yellow + ENDC
+    return Fore.YELLOW + to_yellow
 
 
 def underline(to_underline: str) -> str:
-    return UNDERLINE + to_underline + ENDC
+    # Underline is not a standard colorama style, so we'll use a bright effect instead
+    # or just return the string as is if no visual distinction is needed.
+    # For now, let's just make it bright as a substitute.
+    return Style.BRIGHT + to_underline
 
 
 def safe_filename(filename: str) -> str:
