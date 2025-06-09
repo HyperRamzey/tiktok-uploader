@@ -66,6 +66,7 @@ def get_browser(
     except Exception as e:
         logger.error(f"Could not execute CDP commands, browser might have crashed: {e}")
 
+    driver.set_page_load_timeout(20)
     driver.implicitly_wait(config["implicit_wait"])
 
     return driver
@@ -84,11 +85,10 @@ def chrome_defaults(
     headless: bool = True, proxy: dict = None, **kwargs
 ) -> ChromeOptions:
     options = ChromeOptions()
-    options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--profile-directory=Default")
     options.add_argument("--disable-notifications")
-    options.add_argument("--window-size=1290,2796")
+    options.add_argument("--window-size=1920,1080")
     options.add_argument("--ignore-certificate-errors")
     options.add_argument("--ignore-ssl-errors")
     options.add_argument("--disable-infobars")
@@ -96,20 +96,8 @@ def chrome_defaults(
 
     random_port = random.randint(30000, 40000)
     options.add_argument(f"--remote-debugging-port={random_port}")
-    user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
     options.add_argument(f"user-agent={user_agent}")
-
-    mobile_emulation = {
-        "deviceMetrics": {
-            "width": 1170,
-            "height": 2532,
-            "pixelRatio": 3.0,
-            "mobile": True,
-            "touch": True,
-        },
-        "userAgent": user_agent,
-    }
-    options.add_experimental_option("mobileEmulation", mobile_emulation)
 
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation", "enable-logging"]

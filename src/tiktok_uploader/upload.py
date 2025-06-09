@@ -167,7 +167,6 @@ def complete_upload_form(
     try:
         logger.info("Step 1: Navigating to upload page...")
         _go_to_upload(driver)
-        time.sleep(0.5)
         _remove_cookies_window(driver)
         logger.info("Successfully navigated to upload page")
 
@@ -191,7 +190,7 @@ def complete_upload_form(
         upload_thread = threading.Thread(target=upload_video)
         upload_thread.start()
 
-        upload_timeout = config.get("uploading_wait", 180)
+        upload_timeout = config.get("uploading_wait", 90)
         logger.info(f" Waiting for upload to complete (timeout: {upload_timeout}s)...")
         if not upload_complete_event.wait(timeout=upload_timeout):
             logger.error("❌ Upload timeout exceeded")
@@ -251,29 +250,15 @@ def _go_to_upload(driver) -> None:
             else:
                 _refresh_with_alert(driver)
 
-            page_loaded = False
-            load_indicators = [
-                (By.ID, "root"),
-                (By.TAG_NAME, "body"),
-                (By.XPATH, "//div[contains(@class, 'upload')]"),
-                (By.XPATH, "//input[@type='file']"),
-            ]
-
-            for by, selector in load_indicators:
-                try:
-                    WebDriverWait(driver, 15).until(
-                        EC.presence_of_element_located((by, selector))
-                    )
-                    page_loaded = True
-                    break
-                except:
-                    continue
-
-            if not page_loaded:
-                raise Exception("Upload page did not load properly")
+            # Wait for the most reliable indicator that the page is ready for upload.
+            # The file input is the best candidate.
+            upload_input_selector = (By.XPATH, "//input[@type='file']")
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(upload_input_selector)
+            )
 
             driver.switch_to.default_content()
-            logger.debug(green("Successfully navigated to upload page"))
+            logger.debug(green("Successfully navigated to upload page and it is ready."))
             return
 
         except Exception as e:
@@ -282,7 +267,7 @@ def _go_to_upload(driver) -> None:
                 raise Exception(
                     f"Failed to navigate to upload page after {max_retries} attempts"
                 )
-            time.sleep(2**attempt)
+            time.sleep(1)
 
 
 def _change_to_upload_iframe(driver) -> None:
@@ -319,7 +304,7 @@ def _set_description(driver, description: str) -> None:
     desc_element = None
     for selector in description_selectors:
         try:
-            desc_element = WebDriverWait(driver, 10).until(
+            desc_element = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.XPATH, selector))
             )
             if desc_element.is_displayed():
@@ -333,11 +318,11 @@ def _set_description(driver, description: str) -> None:
 
     try:
         desc_element.click()
-        WebDriverWait(driver, 10).until(lambda d: desc_element.text != "" or True)
+        WebDriverWait(driver, 5).until(lambda d: desc_element.text != "" or True)
 
-        desc_element.send_keys(Keys.CTRL + "a")
+        desc_element.send_keys(Keys.CONTROL + "a")
         desc_element.send_keys(Keys.DELETE)
-        time.sleep(0.2)
+        time.sleep(0.1)
 
         words = description.split(" ")
         for word in words:
@@ -345,12 +330,12 @@ def _set_description(driver, description: str) -> None:
                 desc_element.send_keys(word)
                 desc_element.send_keys(" " + Keys.BACKSPACE)
                 try:
-                    WebDriverWait(driver, 3).until(
+                    WebDriverWait(driver, 2).until(
                         EC.presence_of_element_located(
                             (By.XPATH, config["selectors"]["upload"]["mention_box"])
                         )
                     )
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                     desc_element.send_keys(Keys.ENTER)
                 except:
                     desc_element.send_keys(" ")
@@ -358,11 +343,11 @@ def _set_description(driver, description: str) -> None:
                 logger.debug(green(f"Adding mention: {word}"))
                 desc_element.send_keys(word)
                 desc_element.send_keys(" ")
-                time.sleep(0.2)
+                time.sleep(0.1)
                 desc_element.send_keys(Keys.BACKSPACE)
 
                 try:
-                    WebDriverWait(driver, 3).until(
+                    WebDriverWait(driver, 2).until(
                         EC.presence_of_element_located(
                             (
                                 By.XPATH,
@@ -429,7 +414,7 @@ def _set_video(driver, video: str, **kwargs) -> None:
 
         upload_input = None
 
-        time.sleep(2)
+        time.sleep(1)
 
         for i, selector in enumerate(upload_selectors):
             try:
@@ -502,7 +487,7 @@ def _set_video(driver, video: str, **kwargs) -> None:
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", upload_input
             )
-            time.sleep(0.5)
+            time.sleep(0.2)
 
             if not upload_input.is_displayed():
                 driver.execute_script(
@@ -539,7 +524,7 @@ def _set_video(driver, video: str, **kwargs) -> None:
         for selector in processing_selectors:
             try:
                 logger.debug(f"Waiting for processing indicator: {selector}")
-                WebDriverWait(driver, 10).until(
+                WebDriverWait(driver, 5).until(
                     EC.presence_of_element_located((By.XPATH, selector))
                 )
                 processing_found = True
@@ -569,7 +554,7 @@ def _set_video(driver, video: str, **kwargs) -> None:
         for selector in complete_selectors:
             try:
                 logger.debug(f"Waiting for completion indicator: {selector}")
-                WebDriverWait(driver, 120).until(  # Increased timeout to 2 minutes
+                WebDriverWait(driver, 30).until(  # Increased timeout to 2 minutes
                     EC.presence_of_element_located((By.XPATH, selector))
                 )
                 complete_found = True
@@ -600,7 +585,7 @@ def _remove_cookies_window(driver) -> None:
         cookie_handled = False
 
         try:
-            cookies_banner = WebDriverWait(driver, 5).until(
+            cookies_banner = WebDriverWait(driver, 2).until(
                 EC.presence_of_element_located(
                     (
                         By.TAG_NAME,
@@ -611,7 +596,7 @@ def _remove_cookies_window(driver) -> None:
 
             shadow_root = cookies_banner.shadow_root
             if shadow_root:
-                item = WebDriverWait(driver, 5).until(
+                item = WebDriverWait(driver, 2).until(
                     EC.visibility_of(
                         shadow_root.find_element(
                             By.CSS_SELECTOR,
@@ -620,7 +605,7 @@ def _remove_cookies_window(driver) -> None:
                     )
                 )
 
-                accept_button = WebDriverWait(driver, 5).until(
+                accept_button = WebDriverWait(driver, 2).until(
                     EC.element_to_be_clickable(
                         item.find_elements(By.TAG_NAME, "button")[0]
                     )
@@ -652,7 +637,7 @@ def _remove_cookies_window(driver) -> None:
 
             for selector in cookie_button_selectors:
                 try:
-                    button = WebDriverWait(driver, 3).until(
+                    button = WebDriverWait(driver, 1).until(
                         EC.element_to_be_clickable((By.XPATH, selector))
                     )
                     if button.is_displayed():
@@ -728,7 +713,7 @@ def _remove_split_window(driver) -> None:
 
         for selector in selectors:
             try:
-                element = WebDriverWait(driver, 5).until(
+                element = WebDriverWait(driver, 2).until(
                     EC.presence_of_element_located((By.XPATH, selector))
                 )
                 if element.is_displayed():
@@ -771,7 +756,7 @@ def _set_interactivity(
         show_more_clicked = False
         for selector in show_more_selectors:
             try:
-                element = WebDriverWait(driver, 5).until(
+                element = WebDriverWait(driver, 2).until(
                     EC.presence_of_element_located((By.XPATH, selector))
                 )
                 if element.is_displayed():
@@ -779,7 +764,7 @@ def _set_interactivity(
                         element.click()
                         show_more_clicked = True
                         logger.debug(green("Successfully clicked 'Show more' button"))
-                        time.sleep(0.5)
+                        time.sleep(0.2)
                         break
                     except:
                         try:
@@ -790,7 +775,7 @@ def _set_interactivity(
                                     "Successfully clicked 'Show more' button using JavaScript"
                                 )
                             )
-                            time.sleep(0.5)
+                            time.sleep(0.2)
                             break
                         except:
                             ActionChains(driver).move_to_element(
@@ -802,7 +787,7 @@ def _set_interactivity(
                                     "Successfully clicked 'Show more' button using ActionChains"
                                 )
                             )
-                            time.sleep(0.5)
+                            time.sleep(0.2)
                             break
             except:
                 continue
@@ -814,6 +799,7 @@ def _set_interactivity(
 
         comment_selectors = [
             config["selectors"]["upload"]["comment"],
+            "//div[contains(text(), 'Comment')]/following-sibling::div//input",
             "//div[contains(@class, 'comment')]//input[@type='checkbox']",
             "//div[contains(@class, 'comment')]//div[contains(@class, 'checkbox')]",
             "//div[contains(@class, 'comment')]//div[contains(@class, 'switch')]",
@@ -823,6 +809,7 @@ def _set_interactivity(
 
         stitch_selectors = [
             config["selectors"]["upload"]["stitch"],
+            "//div[contains(text(), 'Stitch')]/following-sibling::div//input",
             "//div[contains(@class, 'stitch')]//input[@type='checkbox']",
             "//div[contains(@class, 'stitch')]//div[contains(@class, 'checkbox')]",
             "//div[contains(@class, 'stitch')]//div[contains(@class, 'switch')]",
@@ -832,6 +819,7 @@ def _set_interactivity(
 
         duet_selectors = [
             config["selectors"]["upload"]["duet"],
+            "//div[contains(text(), 'Duet')]/following-sibling::div//input",
             "//div[contains(@class, 'duet')]//input[@type='checkbox']",
             "//div[contains(@class, 'duet')]//div[contains(@class, 'checkbox')]",
             "//div[contains(@class, 'duet')]//div[contains(@class, 'switch')]",
@@ -842,7 +830,7 @@ def _set_interactivity(
         def find_and_click_element(selectors, setting_name):
             for selector in selectors:
                 try:
-                    element = WebDriverWait(driver, 5).until(
+                    element = WebDriverWait(driver, 2).until(
                         EC.presence_of_element_located((By.XPATH, selector))
                     )
                     if element.is_displayed():
@@ -885,6 +873,8 @@ def _post_video(driver) -> None:
             "//button[contains(@class, 'post')]",
             "//button[contains(@class, 'submit')]",
             "//button[@type='submit']",
+            "//div[contains(@class, 'post-button')]/button",
+            "//div[contains(@class, 'submit-button')]/button",
             "//div[contains(@class, 'post')]//button",
             "//div[contains(@class, 'submit')]//button",
         ]
@@ -892,7 +882,7 @@ def _post_video(driver) -> None:
         post_button = None
         for selector in post_selectors:
             try:
-                element = WebDriverWait(driver, 10).until(
+                element = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((By.XPATH, selector))
                 )
                 if element.is_displayed():
@@ -908,7 +898,7 @@ def _post_video(driver) -> None:
             "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
             post_button,
         )
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         click_success = False
         click_methods = [
@@ -924,6 +914,7 @@ def _post_video(driver) -> None:
             try:
                 click_method()
                 click_success = True
+                time.sleep(1) # small wait to ensure click registers
                 break
             except:
                 continue
@@ -931,25 +922,38 @@ def _post_video(driver) -> None:
         if not click_success:
             raise Exception("All click methods failed")
 
+        time.sleep(1)  # wait for the page to start reacting
+
         confirmation_selectors = [
             config["selectors"]["upload"]["post_confirmation"],
-            "//div[contains(@class, 'success')]",
-            "//div[contains(@class, 'complete')]",
-            "//div[contains(text(), 'Success')]",
-            "//div[contains(text(), 'Complete')]",
-            "//div[contains(text(), 'Posted')]",
+            "//*[contains(text(), 'Video uploaded successfully')]",
+            "//*[contains(text(), 'Uploaded successfully')]",
+            "//*[contains(text(), 'posted successfully')]",
+            "//h2[contains(text(), 'Manage your posts')]",
+            "//button[contains(text(), 'Upload another')]",
         ]
 
         confirmation_found = False
         for selector in confirmation_selectors:
             try:
-                WebDriverWait(driver, 30).until(
+                WebDriverWait(driver, 3).until(
                     EC.presence_of_element_located((By.XPATH, selector))
                 )
                 confirmation_found = True
                 break
             except:
                 continue
+        
+        if not confirmation_found:
+            try:
+                logger.debug("Checking for URL change as fallback confirmation...")
+                WebDriverWait(driver, 3).until(
+                    EC.url_contains("creator-center/content")
+                )
+                confirmation_found = True
+                logger.debug(green("URL changed to creator center, confirming post."))
+            except:
+                pass
 
         if not confirmation_found:
             raise Exception("No post confirmation found")
