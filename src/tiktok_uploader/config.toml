@@ -1,12 +1,12 @@
 headless = true
-quit_on_end = true
+quit_on_end = false
 valid_path_names = ["path", "filename", "video", "video_path"]
 valid_descriptions = ["description", "desc", "caption"]
-implicit_wait = 5
-explicit_wait = 60
-uploading_wait = 180
+implicit_wait = 10
+explicit_wait = 120
+uploading_wait = 300
 
-add_hashtag_wait = 5
+add_hashtag_wait = 10
 
 supported_file_types = ["mp4", "mov", "avi", "wmv", "flv", "webm", "mkv", "m4v", "3gp", "3g2", "gif", "ts"]
 
@@ -18,7 +18,7 @@ login = "https://www.tiktok.com/login/phone-or-email/email"
 upload = "https://www.tiktok.com/creator-center/upload?lang=en"
 
 [disguising]
-user_agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Mobile/15E148 Safari/604.1'
+user-agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Mobile/15E148 Safari/604.1'
 
 [selectors]
 

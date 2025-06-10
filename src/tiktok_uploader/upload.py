@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 import time
 import threading
 import os
+import re
 
 from tqdm import tqdm
 
@@ -20,6 +21,7 @@ from tiktok_uploader.utils import (
     cyan,
     green,
     red,
+    yellow,
     clean_description,
     truncate_string,
 )
@@ -58,50 +60,66 @@ def upload_videos(
     **kwargs,
 ) -> List[Dict[str, Any]]:
     
-    driver = get_browser(
-        name=browser,
-        headless=headless,
-        proxy=proxy,
-        browser_data_dir=browser_data_dir,
-        **kwargs,
-    )
+    driver = None
+    try:
+        driver = get_browser(
+            name=browser,
+            headless=headless,
+            proxy=proxy,
+            browser_data_dir=browser_data_dir,
+            **kwargs,
+        )
 
-    if proxy:
-        if not proxy_is_working(driver, proxy.get("host")):
-            logger.error(red("Proxy is not working. Exiting."))
-            driver.quit()
-            raise Exception("Proxy is not working")
-        logger.debug(green("Proxy is working"))
+        if proxy:
+            if not proxy_is_working(driver, proxy.get("host")):
+                logger.error(red("Proxy is not working. Exiting."))
+                raise Exception("Proxy is not working")
+            logger.debug(green("Proxy is working"))
 
-    driver = auth.authenticate_agent(driver)
+        driver = auth.authenticate_agent(driver)
 
-    failed_videos = []
-    for video in tqdm(videos, desc="Uploading videos"):
-        try:
-            path = abspath(video.get("path"))
-            description = video.get("description", "")
+        failed_videos = []
+        for video in tqdm(videos, desc="Uploading videos"):
+            try:
+                path = abspath(video.get("path"))
+                description = video.get("description", "")
 
-            if not exists(path):
-                logger.warning(red(f"File not found: {path}"))
+                if not exists(path):
+                    logger.warning(red(f"File not found: {path}"))
+                    failed_videos.append(video)
+                    continue
+
+                complete_upload_form(
+                    driver,
+                    path,
+                    description,
+                    num_retries=num_retries,
+                    **kwargs,
+                )
+
+            except Exception as e:
+                logger.error(red(f"Failed to upload {video.get('path')}: {e}"))
                 failed_videos.append(video)
-                continue
+                # If we're in headless mode and encounter an error, try to take a screenshot
+                if headless and driver:
+                    try:
+                        screenshot_path = f"error_screenshot_{int(time.time())}.png"
+                        driver.save_screenshot(screenshot_path)
+                        logger.info(f"Error screenshot saved to {screenshot_path}")
+                    except:
+                        pass
 
-            complete_upload_form(
-                driver,
-                path,
-                description,
-                num_retries=num_retries,
-                **kwargs,
-            )
+        return failed_videos
 
-        except Exception as e:
-            logger.error(red(f"Failed to upload {video.get('path')}: {e}"))
-            failed_videos.append(video)
-    
-    if config.get("quit_on_end", True):
-        driver.quit()
-
-    return failed_videos
+    except Exception as e:
+        logger.error(red(f"Critical error during upload process: {e}"))
+        raise
+    finally:
+        if driver and config.get("quit_on_end", True):
+            try:
+                driver.quit()
+            except:
+                pass
 
 
 def complete_upload_form(
@@ -135,14 +153,34 @@ def _go_to_upload(driver):
     )
 
 def _set_video(driver, path: str, **kwargs):
-    upload_input = driver.find_element(By.XPATH, "//input[@type='file']")
-    upload_input.send_keys(path)
-
-    WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located(
-            (By.XPATH, config["selectors"]["upload"]["post"])
+    try:
+        # Wait for upload input to be present
+        upload_input = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
         )
-    )
+        
+        # Send file path
+        upload_input.send_keys(path)
+        
+        # Wait for processing to start
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, config["selectors"]["upload"]["processing"]))
+        )
+        
+        # Wait for processing to complete and post button to appear
+        WebDriverWait(driver, 120).until(
+            EC.presence_of_element_located((By.XPATH, config["selectors"]["upload"]["post"]))
+        )
+        
+        # Additional wait to ensure video is fully processed
+        time.sleep(5)
+        
+    except TimeoutException as e:
+        logger.error(f"Timeout while uploading video: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error during video upload: {e}")
+        raise
 
 def _set_description(driver, description: str):
     if not description:
@@ -151,12 +189,37 @@ def _set_description(driver, description: str):
     description = clean_description(description)
     description = truncate_string(description, config.get("max_description_length", 150))
     
-    desc_field = driver.find_element(By.XPATH, config["selectors"]["upload"]["description"])
-    desc_field.click()
-    time.sleep(0.5)
-    desc_field.clear()
-    time.sleep(0.5)
-    desc_field.send_keys(description)
+    try:
+        # Wait for description field to be present and clickable
+        desc_field = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, config["selectors"]["upload"]["description"]))
+        )
+        WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, config["selectors"]["upload"]["description"]))
+        )
+        
+        # Click and wait for field to be ready
+        desc_field.click()
+        time.sleep(2)
+        
+        # Select all and delete any pre-filled text
+        desc_field.send_keys(Keys.CONTROL, 'a')
+        time.sleep(0.2)
+        desc_field.send_keys(Keys.DELETE)
+        time.sleep(0.5)
+        
+        # Send description text character by character
+        for char in description:
+            desc_field.send_keys(char)
+            time.sleep(0.05)
+        time.sleep(2)
+        
+    except TimeoutException:
+        logger.error("Timeout waiting for description field to be ready")
+        raise
+    except Exception as e:
+        logger.error(f"Error setting description: {e}")
+        raise
 
 def _set_interactivity(driver, **kwargs):
     comment = kwargs.get("comment", True)
@@ -172,14 +235,66 @@ def _set_interactivity(driver, **kwargs):
             logger.warning(yellow(f"Could not find checkbox for '{setting}'"))
 
 def _post_video(driver):
-    post_button = driver.find_element(By.XPATH, config["selectors"]["upload"]["post"])
-    WebDriverWait(driver, 10).until(EC.element_to_be_clickable(post_button))
-    post_button.click()
-    WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located(
-            (By.XPATH, config["selectors"]["upload"]["post_confirmation"])
+    try:
+        # Wait for post button to be present and clickable
+        post_button = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, config["selectors"]["upload"]["post"]))
         )
-    )
+        
+        # Click post button
+        post_button.click()
+        
+        # Wait for processing to start
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, config["selectors"]["upload"]["processing"]))
+        )
+        
+        # Wait for upload confirmation
+        WebDriverWait(driver, 180).until(
+            EC.presence_of_element_located((By.XPATH, config["selectors"]["upload"]["post_confirmation"]))
+        )
+        
+        # Additional wait to ensure upload is complete
+        time.sleep(15)  # Increased wait time
+        
+        # Verify upload was successful by checking multiple indicators
+        success = False
+        
+        # Check for completion element
+        try:
+            success_element = driver.find_element(By.XPATH, config["selectors"]["upload"]["complete"])
+            if success_element.is_displayed():
+                success = True
+        except NoSuchElementException:
+            pass
+            
+        # Check if we're redirected to the profile page
+        if not success:
+            try:
+                profile_element = driver.find_element(By.XPATH, "//div[contains(@class, 'profile')]")
+                if profile_element.is_displayed():
+                    success = True
+            except NoSuchElementException:
+                pass
+                
+        # Check for success message
+        if not success:
+            try:
+                success_message = driver.find_element(By.XPATH, "//div[contains(text(), 'successfully') or contains(text(), 'posted')]")
+                if success_message.is_displayed():
+                    success = True
+            except NoSuchElementException:
+                pass
+                
+        if not success:
+            raise Exception("Could not verify upload completion")
+            
+    except TimeoutException as e:
+        logger.error(f"Timeout while posting video: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error during video posting: {e}")
+        raise
 
 def _remove_cookies_window(driver):
     try:
