@@ -1,277 +1,194 @@
+"""
+CLI is a controller for the command line use of this library
+"""
+
 from argparse import ArgumentParser
 from os.path import exists, join
+import datetime
 import json
-import sys
-import os
 
 from tiktok_uploader.upload import upload_video
 from tiktok_uploader.auth import login_accounts, save_cookies
-from tiktok_uploader.utils import green, red, yellow, blue, validate_video_file
-from tiktok_uploader import config
 
 
 def main():
-    try:
-        args = get_uploader_args()
-        args = validate_uploader_args(args=args)
+    """
+    Passes arguments into the program
+    """
+    args = get_uploader_args()
 
-        proxy = parse_proxy(args.proxy)
+    args = validate_uploader_args(args=args)
 
-        print(blue("TikTok Uploader Starting..."))
-        print(f"Video: {args.video}")
-        print(
-            f"Description: {args.description[:50]}..."
-            if len(args.description) > 50
-            else f"Description: {args.description}"
-        )
+    # parse args
+    schedule = parse_schedule(args.schedule)
+    proxy = parse_proxy(args.proxy)
+    product_id = args.product_id
 
-        if proxy:
-            print(f"Proxy: {proxy.get('host', 'N/A')}")
+    # runs the program using the arguments provided
+    result = upload_video(
+        filename=args.video,
+        description=args.description,
+        schedule=schedule,
+        username=args.username,
+        password=args.password,
+        cookies=args.cookies,
+        proxy=proxy,
+        product_id=product_id,
+        sessionid=args.sessionid,
+        headless=not args.attach,
+    )
 
-        result = upload_video(
-            filename=args.video,
-            description=args.description,
-            username=args.username,
-            password=args.password,
-            cookies=args.cookies,
-            proxy=proxy,
-            sessionid=args.sessionid,
-            headless=not args.attach,
-        )
-
-        print("=" * 50)
-        if result:
-            print(red("❌ Error while uploading video"))
-            print(red(f"Failed uploads: {len(result)}"))
-            sys.exit(1)
-        else:
-            print(green("✅ Video uploaded successfully"))
-        print("=" * 50)
-
-    except KeyboardInterrupt:
-        print(yellow("\n⚠️ Upload cancelled by user"))
-        sys.exit(1)
-    except Exception as e:
-        print(red(f"❌ Fatal error: {e}"))
-        sys.exit(1)
+    print("-------------------------")
+    if result:
+        print("Error while uploading video")
+    else:
+        print("Video uploaded successfully")
+    print("-------------------------")
 
 
 def get_uploader_args():
+    """
+    Generates a parser which is used to get all of the video's information
+    """
     parser = ArgumentParser(
-        description="TikTok Uploader - Upload videos to TikTok using automation",
-        epilog="Example: tiktok-uploader -v video.mp4 -d 'My video description' -c cookies.txt",
+        description="TikTok uploader is a video uploader which can upload a"
+        + "video from your computer to the TikTok using selenium automation"
     )
 
-    parser.add_argument(
-        "-v",
-        "--video",
-        help="Path to video file to upload",
-        required=True,
-        metavar="FILE",
-    )
-    parser.add_argument(
-        "-d",
-        "--description",
-        help="Video description (supports hashtags and mentions)",
-        default="",
-        metavar="TEXT",
-    )
+    # primary arguments
+    parser.add_argument("-v", "--video", help="Video file", required=True)
+    parser.add_argument("-d", "--description", help="Description", default="")
 
+    # secondary arguments
     parser.add_argument(
-        "--proxy",
-        help="Proxy in format user:pass@host:port or host:port",
+        "-t",
+        "--schedule",
+        help="Schedule UTC time in %Y-%m-%d %H:%M format ",
         default=None,
-        metavar="PROXY",
+    )
+    parser.add_argument(
+        "--proxy", help="Proxy user:pass@host:port or host:port format", default=None
+    )
+    parser.add_argument(
+        "--product-id",
+        help="ID of the product to link in the video (if applicable)",
+        default=None
     )
 
-    auth_group = parser.add_argument_group(
-        "authentication", "Choose one authentication method"
-    )
-    auth_group.add_argument(
-        "-c", "--cookies", help="Path to cookies file", metavar="FILE"
-    )
-    auth_group.add_argument(
-        "-s", "--sessionid", help="TikTok sessionid cookie value", metavar="ID"
-    )
-    auth_group.add_argument(
-        "-u", "--username", help="TikTok email or username", metavar="USER"
-    )
-    auth_group.add_argument("-p", "--password", help="TikTok password", metavar="PASS")
+    # authentication arguments
+    parser.add_argument("-c", "--cookies", help="The cookies you want to use")
+    parser.add_argument("-s", "--sessionid", help="The session id you want to use")
 
-    browser_group = parser.add_argument_group(
-        "browser", "Browser configuration options"
-    )
-    browser_group.add_argument(
+    parser.add_argument("-u", "--username", help="Your TikTok email / username")
+    parser.add_argument("-p", "--password", help="Your TikTok password")
+
+    # selenium arguments
+    parser.add_argument(
         "--attach",
         "-a",
         action="store_true",
         default=False,
-        help="Show browser window (disable headless mode)",
+        help="Runs the program in headless mode (no browser window)",
     )
 
     return parser.parse_args()
 
 
-def validate_uploader_args(args):
+def validate_uploader_args(args: dict):
+    """
+    Preforms validation on each input given
+    """
+
+    # Makes sure the video file exists
     if not exists(args.video):
-        raise FileNotFoundError(f"❌ Video file not found: {args.video}")
+        raise FileNotFoundError(f'Could not find the video file at {args["video"]}')
 
-    if not validate_video_file(args.video, config["supported_file_types"]):
-        supported = ", ".join(config["supported_file_types"])
-        raise ValueError(f"❌ Unsupported video format. Supported: {supported}")
-    file_size_mb = os.path.getsize(args.video) / (1024 * 1024)
-    auth_methods = sum(
-        [
-            bool(args.cookies),
-            bool(args.sessionid),
-            bool(args.username and args.password),
-        ]
-    )
-
-    if auth_methods == 0:
-        raise ValueError("❌ No authentication method provided. Use -c, -s, or -u/-p")
-
-    if auth_methods > 1:
-        raise ValueError("❌ Multiple authentication methods provided. Choose only one")
-
-    if args.cookies and not exists(args.cookies):
-        raise FileNotFoundError(f"❌ Cookies file not found: {args.cookies}")
-
-    if (args.username and not args.password) or (args.password and not args.username):
-        raise ValueError("❌ Both username and password are required for login")
-
-    if len(args.description) > config.get("max_description_length", 150):
-        max_len = config.get("max_description_length", 150)
-        print(yellow(f"⚠️ Description truncated to {max_len} characters"))
-        args.description = args.description[:max_len]
+    # User can not pass in both cookies and username / password
+    if args.cookies and (args.username or args.password):
+        raise ValueError("You can not pass in both cookies and username / password")
 
     return args
 
 
 def auth():
-    try:
-        args = get_auth_args()
-        args = validate_auth_args(args=args)
+    """
+    Authenticates the user
+    """
+    args = get_auth_args()
+    args = validate_auth_args(args=args)
 
-        print(blue("TikTok Account Authentication Starting..."))
+    # runs the program using the arguments provided
+    if args.input:
+        login_info = get_login_info(path=args.input, header=args.header)
+    else:
+        login_info = [(args.username, args.password)]
 
-        if args.input:
-            login_info = get_login_info(path=args.input, header=args.header)
-            print(f"Processing {len(login_info)} accounts from file")
-        else:
-            login_info = [(args.username, args.password)]
-            print(f"Processing single account: {args.username}")
+    username_and_cookies = login_accounts(accounts=login_info)
 
-        os.makedirs(args.output, exist_ok=True)
-
-        username_and_cookies = login_accounts(accounts=login_info)
-
-        success_count = 0
-        for username, cookies in username_and_cookies.items():
-            try:
-                cookie_path = join(args.output, f"{username}.txt")
-                save_cookies(path=cookie_path, cookies=cookies)
-                print(green(f"Saved cookies for {username}"))
-                success_count += 1
-            except Exception as e:
-                print(red(f"❌ Failed to save cookies for {username}: {e}"))
-
-        print("=" * 50)
-        print(
-            green(
-                f"Authentication completed: {success_count}/{len(login_info)} accounts"
-            )
-        )
-        print(f"Cookies saved to: {args.output}")
-        print("=" * 50)
-
-    except Exception as e:
-        print(red(f"❌ Authentication failed: {e}"))
-        sys.exit(1)
+    for username, cookies in username_and_cookies.items():
+        save_cookies(path=join(args.output, username + ".txt"), cookies=cookies)
 
 
 def get_auth_args():
+    """
+    Generates a parser which is used to get all of the authentication information
+    """
     parser = ArgumentParser(
-        description="TikTok Account Authenticator - Login to accounts and save cookies"
+        description="TikTok Auth is a program which can log you into multiple accounts sequentially"
     )
 
+    # authentication arguments
     parser.add_argument(
-        "-o",
-        "--output",
-        default="cookies",
-        help="Output directory for saved cookies",
-        metavar="DIR",
+        "-o", "--output", default="tmp", help="The output folder to save the cookies to"
     )
-    parser.add_argument(
-        "-i", "--input", help="CSV file with username,password pairs", metavar="FILE"
-    )
-    parser.add_argument(
-        "--header", action="store_true", default=True, help="CSV file has header row"
-    )
-    parser.add_argument("-u", "--username", help="Single username", metavar="USER")
-    parser.add_argument("-p", "--password", help="Single password", metavar="PASS")
+    parser.add_argument("-i", "--input", help="A csv file with username and password")
+    # parser.add_argument('-h', '--header', default=True,
+    # help='The header of the csv file which contains the username and password')
+    parser.add_argument("-u", "--username", help="Your TikTok email / username")
+    parser.add_argument("-p", "--password", help="Your TikTok password")
 
     return parser.parse_args()
 
 
 def validate_auth_args(args):
-    has_single = bool(args.username and args.password)
-    has_file = bool(args.input)
-
-    if not (has_single or has_file):
-        raise ValueError("❌ Provide either username/password or input CSV file")
-
-    if has_single and has_file:
-        raise ValueError("❌ Cannot use both single credentials and CSV file")
-
-    if args.input and not exists(args.input):
-        raise FileNotFoundError(f"❌ Input file not found: {args.input}")
+    """
+    Preforms validation on each input given
+    """
+    # username and password or input files are mutually exclusive
+    if (args["username"] and args["password"]) and args["input"]:
+        raise ValueError("You can not pass in both username / password and input file")
 
     return args
 
 
 def get_login_info(path: str, header=True) -> list:
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            lines = file.readlines()
-            if header:
-                lines = lines[1:]
+    """
+    Parses the input file into a list of usernames and passwords
+    """
+    with open(path, "r", encoding="utf-8") as file:
+        file = file.readlines()
+        if header:
+            file = file[1:]
+        return [line.split(",")[:2] for line in file]
 
-            login_info = []
-            for i, line in enumerate(lines, start=1):
-                parts = line.strip().split(",")
-                if len(parts) < 2:
-                    print(yellow(f"Skipping invalid line {i}: {line.strip()}"))
-                    continue
-                login_info.append((parts[0].strip(), parts[1].strip()))
 
-            return login_info
-    except Exception as e:
-        raise ValueError(f"Failed to read login info: {e}")
+def parse_schedule(schedule_raw):
+    if schedule_raw:
+        schedule = datetime.datetime.strptime(schedule_raw, "%Y-%m-%d %H:%M")
+    else:
+        schedule = None
+    return schedule
 
 
 def parse_proxy(proxy_raw):
-    if not proxy_raw:
-        return None
-
-    try:
+    proxy = {}
+    if proxy_raw:
         if "@" in proxy_raw:
-            auth, host_port = proxy_raw.split("@")
-            user, password = auth.split(":")
-            host, port = host_port.split(":")
+            proxy["user"] = proxy_raw.split("@")[0].split(":")[0]
+            proxy["pass"] = proxy_raw.split("@")[0].split(":")[1]
+            proxy["host"] = proxy_raw.split("@")[1].split(":")[0]
+            proxy["port"] = proxy_raw.split("@")[1].split(":")[1]
         else:
-            host, port = proxy_raw.split(":")
-            user = password = None
-
-        proxy = {
-            "host": host,
-            "port": int(port),
-        }
-
-        if user and password:
-            proxy["user"] = user
-            proxy["pass"] = password
-
-        return proxy
-    except Exception as e:
-        raise ValueError(f"Invalid proxy format: {e}")
+            proxy["host"] = proxy_raw.split(":")[0]
+            proxy["port"] = proxy_raw.split(":")[1]
+    return proxy
