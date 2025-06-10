@@ -1,19 +1,17 @@
 from os.path import abspath, join, dirname
 import logging
-import sys
-
 import toml
 
 __version__ = "1.0.0"
 __author__ = "TikTok Uploader Contributors"
 __description__ = "Automated video uploading to TikTok using Selenium"
+
+src_dir = abspath(dirname(__file__))
+config_path = join(src_dir, "config.toml")
 try:
-    src_dir = abspath(dirname(__file__))
-    config_path = join(src_dir, "config.toml")
     config = toml.load(config_path)
 except Exception as e:
-    print(f"❌ Failed to load configuration: {e}")
-    sys.exit(1)
+    raise RuntimeError(f"Failed to load configuration: {e}") from e
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -28,19 +26,16 @@ if not logger.handlers:
     logger.addHandler(stream_handler)
 
 logger.propagate = False
-from tiktok_uploader.upload import upload_video, upload_videos
+from tiktok_uploader.upload import upload_video
 from tiktok_uploader.auth import AuthBackend
-
 
 def set_log_level(level):
     logger.setLevel(level)
     for handler in logger.handlers:
         handler.setLevel(level)
 
-
 __all__ = [
     "upload_video",
-    "upload_videos",
     "AuthBackend",
     "config",
     "logger",

@@ -5,75 +5,65 @@ Utilities for TikTok Uploader
 import os
 import time
 import random
-from typing import List, Optional
-from colorama import Fore, Style, init
-
-init(autoreset=True)
+from typing import List, Optional, Callable, Any
+from functools import lru_cache, wraps
 
 
 def bold(to_bold: str) -> str:
-    return Style.BRIGHT + to_bold
+    return to_bold
 
 
 def green(to_green: str) -> str:
-    return Fore.GREEN + to_green
+    return to_green
 
 
 def red(to_red: str) -> str:
-    return Fore.RED + to_red
+    return to_red
 
 
 def cyan(to_cyan: str) -> str:
-    return Fore.CYAN + to_cyan
+    return to_cyan
 
 
 def blue(to_blue: str) -> str:
-    return Fore.BLUE + to_blue
+    return to_blue
 
 
 def yellow(to_yellow: str) -> str:
-    return Fore.YELLOW + to_yellow
+    return to_yellow
 
 
 def underline(to_underline: str) -> str:
-    return Style.BRIGHT + to_underline
+    return to_underline
 
 
+@lru_cache(maxsize=1000)
 def safe_filename(filename: str) -> str:
-    invalid_chars = '<>:"/\\|?*'
-    for char in invalid_chars:
-        filename = filename.replace(char, "_")
-    return filename[:255]
+    return "".join(c for c in filename if c.isalnum() or c in "._- ")
 
 
+@lru_cache(maxsize=1000)
 def validate_video_file(filepath: str, supported_types: List[str]) -> bool:
-    if not os.path.exists(filepath):
-        return False
-    extension = filepath.split(".")[-1].lower()
-    return extension in [ext.lower() for ext in supported_types]
+    return any(filepath.lower().endswith(f".{ext}") for ext in supported_types)
 
 
 def random_delay(min_seconds: float = 0.5, max_seconds: float = 2.0) -> None:
-    delay = random.uniform(min_seconds, max_seconds)
-    time.sleep(delay)
+    time.sleep(random.uniform(min_seconds, max_seconds))
 
 
+@lru_cache(maxsize=100)
 def format_duration(seconds: float) -> str:
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    elif seconds < 3600:
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{minutes}m {secs}s"
-    else:
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        return f"{hours}h {minutes}m"
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
 
 
 def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
@@ -82,22 +72,15 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
                         raise e
                     time.sleep(delay * (attempt + 1))
             return None
-
         return wrapper
-
     return decorator
 
 
+@lru_cache(maxsize=1000)
 def truncate_string(text: str, max_length: int = 100) -> str:
-    if len(text) <= max_length:
-        return text
-    return text[: max_length - 3] + "..."
+    return text[:max_length] + "..." if len(text) > max_length else text
 
 
+@lru_cache(maxsize=1000)
 def clean_description(description: str) -> str:
-    if not description:
-        return ""
-    cleaned = "".join(
-        char for char in description if ord(char) >= 32 or char in "\n\r\t"
-    )
-    return cleaned.strip()
+    return description.strip()
