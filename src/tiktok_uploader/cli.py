@@ -62,7 +62,6 @@ def get_uploader_args():
         epilog="Example: tiktok-uploader -v video.mp4 -d 'My video description' -c cookies.txt",
     )
 
-    # Primary arguments
     parser.add_argument(
         "-v",
         "--video",
@@ -78,7 +77,6 @@ def get_uploader_args():
         metavar="TEXT",
     )
 
-    # Secondary arguments
     parser.add_argument(
         "--proxy",
         help="Proxy in format user:pass@host:port or host:port",
@@ -86,7 +84,6 @@ def get_uploader_args():
         metavar="PROXY",
     )
 
-    # Authentication group
     auth_group = parser.add_argument_group(
         "authentication", "Choose one authentication method"
     )
@@ -250,45 +247,31 @@ def get_login_info(path: str, header=True) -> list:
 
             return login_info
     except Exception as e:
-        raise ValueError(f"❌ Failed to parse input file: {e}")
+        raise ValueError(f"Failed to read login info: {e}")
 
 
 def parse_proxy(proxy_raw):
     if not proxy_raw:
         return None
-    proxy_parts = proxy_raw.split("@")
 
-    if len(proxy_parts) == 2:
-        auth_part = proxy_parts[0]
-        host_part = proxy_parts[1]
-
-        if ":" in auth_part:
-            username, password = auth_part.split(":", 1)
+    try:
+        if "@" in proxy_raw:
+            auth, host_port = proxy_raw.split("@")
+            user, password = auth.split(":")
+            host, port = host_port.split(":")
         else:
-            username, password = auth_part, ""
-    else:
-        host_part = proxy_parts[0]
-        username, password = "", ""
+            host, port = proxy_raw.split(":")
+            user = password = None
 
-    if ":" in host_part:
-        host, port = host_part.rsplit(":", 1)
-        try:
-            port = int(port)
-        except ValueError:
-            raise ValueError("❌ Invalid proxy port number")
-    else:
-        raise ValueError(
-            "❌ Proxy must include port (format: host:port or user:pass@host:port)"
-        )
+        proxy = {
+            "host": host,
+            "port": int(port),
+        }
 
-    proxy_dict = {
-        "host": host,
-        "port": port,
-    }
+        if user and password:
+            proxy["user"] = user
+            proxy["pass"] = password
 
-    if username:
-        proxy_dict["username"] = username
-    if password:
-        proxy_dict["password"] = password
-
-    return proxy_dict
+        return proxy
+    except Exception as e:
+        raise ValueError(f"Invalid proxy format: {e}")

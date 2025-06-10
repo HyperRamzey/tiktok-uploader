@@ -36,9 +36,6 @@ def yellow(to_yellow: str) -> str:
 
 
 def underline(to_underline: str) -> str:
-    # Underline is not a standard colorama style, so we'll use a bright effect instead
-    # or just return the string as is if no visual distinction is needed.
-    # For now, let's just make it bright as a substitute.
     return Style.BRIGHT + to_underline
 
 

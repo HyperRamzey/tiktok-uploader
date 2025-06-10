@@ -31,6 +31,13 @@ logger.propagate = False
 from tiktok_uploader.upload import upload_video, upload_videos
 from tiktok_uploader.auth import AuthBackend
 
+
+def set_log_level(level):
+    logger.setLevel(level)
+    for handler in logger.handlers:
+        handler.setLevel(level)
+
+
 __all__ = [
     "upload_video",
     "upload_videos",
@@ -38,4 +45,5 @@ __all__ = [
     "config",
     "logger",
     "__version__",
+    "set_log_level",
 ]

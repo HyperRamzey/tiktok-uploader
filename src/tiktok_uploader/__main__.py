@@ -6,7 +6,7 @@ import os
 try:
     from tiktok_uploader import cli, __version__
 except ImportError as e:
-    print(f"❌ Failed to import TikTok Uploader: {e}")
+    print(f" Failed to import TikTok Uploader: {e}")
     print("Please ensure the package is properly installed.")
     sys.exit(1)
 
