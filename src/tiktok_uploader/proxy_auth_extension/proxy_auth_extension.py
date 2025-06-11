@@ -17,10 +17,6 @@ def generate_proxy_auth_extension(
     proxy_pass: str,
     extension_file: str,
 ):
-    """Generate a Chrome extension that modify proxy settings based on desired host, port, username and password.
-
-    If you are using --headless in chromedriver, you must use --headless=new to support extensions in headless mode.
-    """
     current_dir = os.path.dirname(os.path.abspath(__file__))
     manifest_json_path = os.path.join(current_dir, "manifest.json")
     background_js_path = os.path.join(current_dir, "background.js")
