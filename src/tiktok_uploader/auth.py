@@ -72,13 +72,12 @@ class AuthBackend:
     def get_cookies(self, path: str = None, cookies_str: str = None) -> list:
         if path:
             try:
-                # Try to read as Netscape format first
                 cookies = []
                 with open(path, "r") as f:
                     for line in f:
                         line = line.strip()
-                        if line and not line.startswith('#'):
-                            fields = line.split('\t')
+                        if line and not line.startswith("#"):
+                            fields = line.split("\t")
                             if len(fields) >= 7:
                                 cookie = {
                                     "domain": fields[0],
@@ -87,13 +86,11 @@ class AuthBackend:
                                     "secure": fields[3] == "TRUE",
                                     "expiration": int(fields[4]),
                                     "name": fields[5],
-                                    "value": fields[6]
+                                    "value": fields[6],
                                 }
                                 cookies.append(cookie)
                 if cookies:
                     return cookies
-                
-                # If no cookies found, try JSON format as fallback
                 with open(path, "r") as f:
                     return json.load(f)
             except Exception as e:
@@ -115,22 +112,28 @@ def login(driver, username: str, password: str):
 
     try:
         username_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, config["selectors"]["login"]["username_field"]))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, config["selectors"]["login"]["username_field"])
+            )
         )
         password_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, config["selectors"]["login"]["password_field"]))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, config["selectors"]["login"]["password_field"])
+            )
         )
 
         username_field.send_keys(username)
         password_field.send_keys(password)
 
         login_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, config["selectors"]["login"]["login_button"]))
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, config["selectors"]["login"]["login_button"])
+            )
         )
         login_button.click()
 
         WebDriverWait(driver, 10).until(EC.url_changes(config["paths"]["login"]))
-        
+
     except Exception as e:
         logger.error(f"Login failed: {e}")
         raise e

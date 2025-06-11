@@ -4,9 +4,6 @@ from tiktok_uploader import cli
 
 
 def main():
-    """
-    Entry point for TikTok-Uploader, makes a call to CLI
-    """
     cli.main()
 
 

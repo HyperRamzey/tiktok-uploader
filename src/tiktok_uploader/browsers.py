@@ -35,10 +35,7 @@ def get_browser(
 
     try:
         service = ChromeService(ChromeDriverManager().install())
-        driver = webdriver.Chrome(
-            service=service,
-            options=options
-        )
+        driver = webdriver.Chrome(service=service, options=options)
     except Exception as e:
         logger.error("Failed to initialize Chrome browser: %s", e)
         raise
@@ -53,9 +50,11 @@ def chrome_defaults(
     browser_data_dir: Optional[str] = None,
 ) -> None:
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation", "enable-logging"]
+    )
     options.add_experimental_option("useAutomationExtension", False)
-    
+
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-popup-blocking")
     options.add_argument("--disable-notifications")
@@ -76,12 +75,9 @@ def chrome_defaults(
 
 
 def get_driver_path(name: str) -> str:
-    """
-    Downloads and returns the path to the specified web driver
-    """
-    if name.lower() == 'chrome':
+    if name.lower() == "chrome":
         path = ChromeDriverManager().install()
     else:
         raise NotImplementedError(f"Driver for {name} is not supported")
-    
+
     return path
