@@ -4,6 +4,7 @@ import time
 import threading
 import os
 import re
+import logging
 
 from tqdm import tqdm
 
@@ -24,29 +25,96 @@ from tiktok_uploader.utils import (
     yellow,
     clean_description,
     truncate_string,
+    get_cookies,
 )
 from tiktok_uploader.proxy_auth_extension import proxy_is_working
 
+logger = logging.getLogger(__name__)
 
-def upload_video(
-    filename: str,
-    description: str = "",
-    cookies: str = "",
-    sessionid: str = None,
-    proxy: Optional[Dict] = None,
-    **kwargs,
-) -> bool:
-    auth = AuthBackend(
-        cookies=cookies,
-        sessionid=sessionid,
-    )
+def upload_video(filename, description, cookies, browser_data_dir=None, headless=True):
+    """
+    Upload a video to TikTok using Selenium
+    """
+    try:
+        # Initialize progress bar
+        pbar = tqdm(total=100, desc="Uploading video", leave=False)
+        pbar.update(10)  # Initial progress
 
-    return upload_videos(
-        videos=[{"path": filename, "description": description}],
-        auth=auth,
-        proxy=proxy,
-        **kwargs,
-    )
+        # Setup browser
+        driver = get_browser(headless=headless, user_data_dir=browser_data_dir)
+        pbar.update(10)  # Browser setup complete
+
+        # Load cookies
+        driver.get("https://www.tiktok.com")
+        for cookie in get_cookies(cookies):
+            try:
+                driver.add_cookie(cookie)
+            except Exception as e:
+                logger.error(f"Error adding cookie: {e}")
+        pbar.update(10)  # Cookies loaded
+
+        # Navigate to upload page
+        driver.get("https://www.tiktok.com/upload")
+        pbar.update(10)  # Reached upload page
+
+        # Wait for file input and upload video
+        try:
+            file_input = WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
+            )
+            file_input.send_keys(os.path.abspath(filename))
+            pbar.update(20)  # File selected
+        except TimeoutException:
+            logger.error("Timeout waiting for file input")
+            pbar.close()
+            return False
+
+        # Wait for description input and enter description
+        try:
+            description_input = WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div[contenteditable='true']"))
+            )
+            description_input.send_keys(description)
+            pbar.update(10)  # Description entered
+        except TimeoutException:
+            logger.error("Timeout waiting for description input")
+            pbar.close()
+            return False
+
+        # Click post button
+        try:
+            post_button = WebDriverWait(driver, 30).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+            )
+            post_button.click()
+            pbar.update(20)  # Post button clicked
+        except TimeoutException:
+            logger.error("Timeout waiting for post button")
+            pbar.close()
+            return False
+
+        # Wait for upload to complete
+        try:
+            WebDriverWait(driver, 300).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-e2e='upload-success']"))
+            )
+            pbar.update(10)  # Upload complete
+        except TimeoutException:
+            logger.error("Timeout waiting for upload completion")
+            pbar.close()
+            return False
+
+        pbar.close()
+        return True
+
+    except Exception as e:
+        logger.error(f"Error during upload: {e}")
+        if 'pbar' in locals():
+            pbar.close()
+        return False
+    finally:
+        if 'driver' in locals():
+            driver.quit()
 
 
 def upload_videos(

@@ -8,6 +8,8 @@ from typing import Optional
 import atexit
 from webdriver_manager.chrome import ChromeDriverManager
 from tiktok_uploader.proxy_auth_extension import get_proxy_auth_extension
+import shutil
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,10 @@ def get_browser(
 
     try:
         service = ChromeService(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = webdriver.Chrome(
+            service=service,
+            options=options
+        )
     except Exception as e:
         logger.error("Failed to initialize Chrome browser: %s", e)
         raise
@@ -48,7 +53,7 @@ def chrome_defaults(
     browser_data_dir: Optional[str] = None,
 ) -> None:
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option("useAutomationExtension", False)
     
     options.add_argument("--disable-infobars")
@@ -68,3 +73,15 @@ def chrome_defaults(
 
     options.add_argument(f"--lang={config.get('lang', 'en-US')}")
     options.add_argument(f"--user-agent={config['disguising']['user-agent']}")
+
+
+def get_driver_path(name: str) -> str:
+    """
+    Downloads and returns the path to the specified web driver
+    """
+    if name.lower() == 'chrome':
+        path = ChromeDriverManager().install()
+    else:
+        raise NotImplementedError(f"Driver for {name} is not supported")
+    
+    return path
