@@ -12,7 +12,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    StaleElementReferenceException,
+)
 
 from tiktok_uploader.browsers import get_browser
 from tiktok_uploader.auth import AuthBackend
@@ -30,7 +34,7 @@ from tiktok_uploader.utils import (
 from tiktok_uploader.proxy_auth_extension import proxy_is_working
 
 logger = logging.getLogger(__name__)
-POST_FINISH_TIMEOUT = 10
+POST_FINISH_TIMEOUT = 60
 
 
 def upload_video(filename, description, cookies, browser_data_dir=None, headless=True):
@@ -52,44 +56,55 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
             file_input = _locate_file_input(driver, timeout=60)
             file_input.send_keys(os.path.abspath(filename))
             pbar.update(20)
-            
+
             logger.info("Waiting for video upload and processing to complete...")
             try:
                 processing_selectors = [
                     "//div[contains(text(), 'Uploading') or contains(text(), 'Processing') or contains(text(), 'upload in progress')]",
                     "//span[contains(text(), 'Uploading') or contains(text(), 'Processing')]",
                     "//div[contains(text(), 'processing')]",
+                    "//div[contains(@class, 'progress')]", 
+                    "//div[contains(@class, 'upload-progress')]",
+                    "//div[contains(@role, 'progressbar')]",
                 ]
-                
+
                 processing_found = False
                 for selector in processing_selectors:
                     try:
                         processing_element = driver.find_element(By.XPATH, selector)
                         if processing_element.is_displayed():
                             processing_found = True
-                            logger.info(f"Processing indicator found with selector: {selector}")
+                            logger.info(
+                                f"Processing indicator found with selector: {selector}"
+                            )
                             try:
-                                WebDriverWait(driver, 60).until(
-                                    EC.invisibility_of_element_located((By.XPATH, selector))
+                                WebDriverWait(driver, 90).until(  # Increased timeout from 60 to 90 seconds
+                                    EC.invisibility_of_element_located(
+                                        (By.XPATH, selector)
+                                    )
                                 )
                                 logger.info("Processing completed")
                             except TimeoutException:
-                                logger.warning("Processing indicator did not disappear within timeout")
+                                logger.warning(
+                                    "Processing indicator did not disappear within timeout"
+                                )
                             break
                     except NoSuchElementException:
                         continue
-                
+
                 if not processing_found:
-                    logger.info("No processing indicator found, waiting a bit anyway...")
-                    time.sleep(10)
-                
+                    logger.info(
+                        "No processing indicator found, waiting a bit anyway..."
+                    )
+                    time.sleep(30)  # Increased from 10 to 20 seconds
+
                 form_selectors = [
                     "//div[contains(@class, 'form') or contains(@class, 'editor')]",
                     "//div[@role='form']",
                     "//div[.//div[@aria-label='Caption' or @aria-label='Description']]",
                     "//textarea",
                 ]
-                
+
                 for selector in form_selectors:
                     try:
                         WebDriverWait(driver, 30).until(
@@ -99,9 +114,9 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                         break
                     except TimeoutException:
                         continue
-                
+
                 time.sleep(5)
-                
+
             except Exception as e:
                 logger.warning(f"Error while waiting for upload completion: {e}")
                 time.sleep(10)
@@ -128,14 +143,21 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                     try:
                         desc_selector = config["selectors"]["upload"]["description"]
                         if desc_selector:
-                            candidates = driver.find_elements(By.CSS_SELECTOR, desc_selector)
-                            logger.info(f"Found {len(candidates)} elements with config selector: {desc_selector}")
+                            candidates = driver.find_elements(
+                                By.CSS_SELECTOR, desc_selector
+                            )
+                            logger.info(
+                                f"Found {len(candidates)} elements with config selector: {desc_selector}"
+                            )
                     except Exception as e:
                         logger.warning(f"Error using config selector: {e}")
 
                     if not candidates:
-                        candidates = driver.find_elements(By.CSS_SELECTOR, "div.public-DraftEditor-content[contenteditable='true']")
-                        
+                        candidates = driver.find_elements(
+                            By.CSS_SELECTOR,
+                            "div.public-DraftEditor-content[contenteditable='true']",
+                        )
+
                     if not candidates:
                         for xpath in xpaths:
                             try:
@@ -146,15 +168,25 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                                 pass
 
                     if not candidates:
-                        candidates += driver.find_elements(By.CSS_SELECTOR, "div[contenteditable='true'][role='combobox']")
-                        candidates += driver.find_elements(By.CSS_SELECTOR, "div[contenteditable='true'][role='textbox']")
-                        candidates += driver.find_elements(By.CSS_SELECTOR, "div[contenteditable='true']")
+                        candidates += driver.find_elements(
+                            By.CSS_SELECTOR,
+                            "div[contenteditable='true'][role='combobox']",
+                        )
+                        candidates += driver.find_elements(
+                            By.CSS_SELECTOR,
+                            "div[contenteditable='true'][role='textbox']",
+                        )
+                        candidates += driver.find_elements(
+                            By.CSS_SELECTOR, "div[contenteditable='true']"
+                        )
 
                     for el in candidates:
                         try:
                             if el.is_displayed() and el.is_enabled():
                                 description_input = el
-                                logger.info(f"Found description input field: {el.get_attribute('outerHTML')[:100]}...")
+                                logger.info(
+                                    f"Found description input field: {el.get_attribute('outerHTML')[:100]}..."
+                                )
                                 break
                         except StaleElementReferenceException:
                             continue
@@ -165,26 +197,40 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                 if description_input is None:
                     time.sleep(2)
                     try:
-                        screenshot_path = f"description_field_search_{int(time.time())}.png"
+                        screenshot_path = (
+                            f"description_field_search_{int(time.time())}.png"
+                        )
                         driver.save_screenshot(screenshot_path)
                         logger.info(f"Debug screenshot saved to {screenshot_path}")
                     except Exception as ss_err:
                         logger.warning(f"Could not save debug screenshot: {ss_err}")
 
             if description_input is None:
-                raise TimeoutException("Could not locate description textbox within 180 seconds")
+                raise TimeoutException(
+                    "Could not locate description textbox within 180 seconds"
+                )
 
             for attempt in range(2):
-                if attempt == 1 and (description_input is None or not description_input.is_enabled()):
+                if attempt == 1 and (
+                    description_input is None or not description_input.is_enabled()
+                ):
                     try:
-                        description_input = driver.find_element(By.CSS_SELECTOR, "div.public-DraftEditor-content[contenteditable='true']")
+                        description_input = driver.find_element(
+                            By.CSS_SELECTOR,
+                            "div.public-DraftEditor-content[contenteditable='true']",
+                        )
                     except Exception:
                         description_input = None
                 try:
                     if description_input is None:
-                        raise StaleElementReferenceException("Description input lost after re-render")
+                        raise StaleElementReferenceException(
+                            "Description input lost after re-render"
+                        )
 
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", description_input)
+                    driver.execute_script(
+                        "arguments[0].scrollIntoView({block: 'center'});",
+                        description_input,
+                    )
                     driver.execute_script("arguments[0].focus();", description_input)
                     time.sleep(0.3)
                     description_input.send_keys(Keys.CONTROL, "a")
@@ -201,51 +247,59 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                         raise
             pbar.update(10)
 
-            logger.info("Using preset TikTok settings - skipping all interactivity modifications")
+            logger.info(
+                "Using preset TikTok settings - skipping all interactivity modifications"
+            )
 
             for scroll_pos in [400, 600, 800]:
                 driver.execute_script(f"window.scrollTo(0, {scroll_pos});")
                 time.sleep(0.5)
-            
+
             try:
                 post_button_selectors = [
                     "button[data-e2e='post_video_button']",
                     "button[data-e2e='publish-button']",
                     "button[type='submit']",
                     "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'post')]",
-                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'publish')]"
+                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'publish')]",
                 ]
-                
+
                 scroll_found = False
                 for scroll_pos in [600, 1000, 1500, 2000, 2500, 3000, 3500]:
                     driver.execute_script(f"window.scrollTo(0, {scroll_pos});")
-                    time.sleep(0.7
-                    
+                    time.sleep(0.7)
+
                     for selector in post_button_selectors:
                         try:
                             if selector.startswith("//"):
                                 post_buttons = driver.find_elements(By.XPATH, selector)
                             else:
-                                post_buttons = driver.find_elements(By.CSS_SELECTOR, selector)
-                            
+                                post_buttons = driver.find_elements(
+                                    By.CSS_SELECTOR, selector
+                                )
+
                             for btn in post_buttons:
                                 if btn.is_displayed() and btn.is_enabled():
-                                    logger.info(f"Post button found at scroll position {scroll_pos} with selector: {selector}")
+                                    logger.info(
+                                        f"Post button found at scroll position {scroll_pos} with selector: {selector}"
+                                    )
                                     post_button = btn
                                     scroll_found = True
                                     break
-                            
+
                             if scroll_found:
                                 break
                         except Exception:
                             pass
-                    
+
                     if scroll_found:
                         break
-                        
+
                 if not scroll_found:
                     logger.info("Trying bottom scroll to find post button...")
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    driver.execute_script(
+                        "window.scrollTo(0, document.body.scrollHeight);"
+                    )
                     time.sleep(1.5)
                     for scroll_pos in [3000, 2500, 2000, 1500, 1000, 500]:
                         driver.execute_script(f"window.scrollTo(0, {scroll_pos});")
@@ -253,27 +307,35 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                         for selector in post_button_selectors:
                             try:
                                 if selector.startswith("//"):
-                                    post_buttons = driver.find_elements(By.XPATH, selector)
+                                    post_buttons = driver.find_elements(
+                                        By.XPATH, selector
+                                    )
                                 else:
-                                    post_buttons = driver.find_elements(By.CSS_SELECTOR, selector)
-                                
+                                    post_buttons = driver.find_elements(
+                                        By.CSS_SELECTOR, selector
+                                    )
+
                                 for btn in post_buttons:
                                     if btn.is_displayed() and btn.is_enabled():
-                                        logger.info(f"Post button found during reverse scroll at {scroll_pos}px with selector: {selector}")
+                                        logger.info(
+                                            f"Post button found during reverse scroll at {scroll_pos}px with selector: {selector}"
+                                        )
                                         post_button = btn
                                         scroll_found = True
                                         break
-                                
+
                                 if scroll_found:
                                     break
                             except Exception:
                                 pass
-                        
+
                         if scroll_found:
                             break
-                
-                if scroll_found and 'post_button' in locals():
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post_button)
+
+                if scroll_found and "post_button" in locals():
+                    driver.execute_script(
+                        "arguments[0].scrollIntoView({block: 'center'});", post_button
+                    )
                     time.sleep(1)
                 else:
                     for selector in post_button_selectors:
@@ -284,16 +346,43 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                                 )
                             else:
                                 post_button = WebDriverWait(driver, 10).until(
-                                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                                    EC.element_to_be_clickable(
+                                        (By.CSS_SELECTOR, selector)
+                                    )
                                 )
-                            logger.info(f"Post button found with WebDriverWait using selector: {selector}")
+                            logger.info(
+                                f"Post button found with WebDriverWait using selector: {selector}"
+                            )
                             break
                         except Exception:
                             continue
-                
+
                 try:
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post_button)
+                    driver.execute_script(
+                        "arguments[0].scrollIntoView({block: 'center'});", post_button
+                    )
                     time.sleep(1.5)
+
+                    # Check if post button is actually enabled (not grayed out)
+                    is_enabled = driver.execute_script(
+                        "return !arguments[0].disabled && !arguments[0].classList.contains('disabled') && window.getComputedStyle(arguments[0]).opacity > 0.5", 
+                        post_button
+                    )
+                    
+                    if not is_enabled:
+                        logger.info("Post button appears disabled. Waiting additional time...")
+                        time.sleep(15)  # Wait additional time for processing to complete
+                        
+                    # Check again if post button is enabled
+                    is_enabled = driver.execute_script(
+                        "return !arguments[0].disabled && !arguments[0].classList.contains('disabled') && window.getComputedStyle(arguments[0]).opacity > 0.5", 
+                        post_button
+                    )
+                    
+                    if not is_enabled:
+                        logger.info("Post button still appears disabled. Waiting longer...")
+                        time.sleep(15)  # Wait more time
+                    
                     driver.execute_script("arguments[0].click();", post_button)
                     logger.info(
                         cyan(
@@ -318,7 +407,6 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
             return "Timeout waiting for description input"
 
         try:
-
             wait_start = time.time()
             success_detected = False
 
@@ -334,7 +422,7 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                     "//div[contains(text(), 'successfully')]",
                     "//div[contains(text(), 'Your video is being uploaded')]",
                 ]
-                
+
                 for selector in success_selectors:
                     try:
                         if selector.startswith("//"):
@@ -343,9 +431,15 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                             )
                         else:
                             WebDriverWait(driver, 5).until(
-                                EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                                EC.presence_of_element_located(
+                                    (By.CSS_SELECTOR, selector)
+                                )
                             )
-                        logger.info(green(f"Upload success banner detected with selector: {selector}"))
+                        logger.info(
+                            green(
+                                f"Upload success banner detected with selector: {selector}"
+                            )
+                        )
                         success_detected = True
                         break
                     except TimeoutException:
@@ -355,33 +449,57 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
 
             if not success_detected:
                 current_url = driver.current_url
-                if "/content" in current_url or "/creator-center" in current_url or "/tiktok-studio" in current_url:
+                if (
+                    "/content" in current_url
+                    or "/creator-center" in current_url
+                    or "/tiktok-studio" in current_url
+                ):
                     logger.info(green("Upload likely successful based on URL redirect"))
                     success_detected = True
                 elif "tiktokstudio" not in current_url and "upload" not in current_url:
-                    logger.info(green("Upload likely successful based on navigation away from upload page"))
+                    logger.info(
+                        green(
+                            "Upload likely successful based on navigation away from upload page"
+                        )
+                    )
                     success_detected = True
                 else:
                     try:
-                        profile_links = driver.find_elements(By.XPATH, "//a[contains(@href, '/profile/') or contains(@href, '/user/')]")
+                        profile_links = driver.find_elements(
+                            By.XPATH,
+                            "//a[contains(@href, '/profile/') or contains(@href, '/user/')]",
+                        )
                         if profile_links:
-                            logger.info(green("Upload likely successful - profile links detected"))
+                            logger.info(
+                                green(
+                                    "Upload likely successful - profile links detected"
+                                )
+                            )
                             success_detected = True
                     except Exception:
                         pass
-                        
+
                     try:
                         buttons = driver.find_elements(By.TAG_NAME, "button")
                         for button in buttons:
                             button_text = button.text.lower()
-                            if ("continue" in button_text or "new" in button_text or "done" in button_text or 
-                                "view" in button_text or "close" in button_text) and button.is_displayed():
-                                logger.info(green(f"Upload likely successful - found button with text: {button_text}"))
+                            if (
+                                "continue" in button_text
+                                or "new" in button_text
+                                or "done" in button_text
+                                or "view" in button_text
+                                or "close" in button_text
+                            ) and button.is_displayed():
+                                logger.info(
+                                    green(
+                                        f"Upload likely successful - found button with text: {button_text}"
+                                    )
+                                )
                                 success_detected = True
                                 break
                     except Exception:
                         pass
-                        
+
             if success_detected:
                 logger.info(green("Upload confirmed successful!"))
                 try:
@@ -393,12 +511,16 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
             else:
                 elapsed = time.time() - wait_start
                 remaining_wait = max(1, POST_FINISH_TIMEOUT - elapsed)
-                logger.info(yellow(f"No explicit success indicator found - waiting {int(remaining_wait)} more seconds to ensure upload completes"))
+                logger.info(
+                    yellow(
+                        f"No explicit success indicator found - waiting {int(remaining_wait)} more seconds to ensure upload completes"
+                    )
+                )
                 time.sleep(remaining_wait)
                 logger.info(yellow("Wait completed, upload assumed successful"))
-            
+
             pbar.update(10)
-            
+
         except TimeoutException:
             elapsed = int(time.time() - wait_start)
             logger.warning(
@@ -504,8 +626,10 @@ def complete_upload_form(
         _go_to_upload(driver)
         _set_video(driver, path, **kwargs)
         _set_description(driver, description)
-        logger.info("Using preset TikTok settings - skipping all interactivity modifications")
-        
+        logger.info(
+            "Using preset TikTok settings - skipping all interactivity modifications"
+        )
+
         _post_video(driver)
     except Exception as e:
         logger.error(red(f"Upload of {path} failed: {e}"))
@@ -688,8 +812,6 @@ class FailedToUpload(Exception):
     pass
 
 
-
-
 def _locate_file_input(driver, timeout: int = 30):
     """Return a visible <input type='file'> element."""
     try:
@@ -703,4 +825,6 @@ def _locate_file_input(driver, timeout: int = 30):
         driver.execute_script("arguments[0].style.opacity = 1;", file_input)
         return file_input
     except TimeoutException:
-        raise TimeoutException("Could not locate <input type='file'> within given timeout")
+        raise TimeoutException(
+            "Could not locate <input type='file'> within given timeout"
+        )

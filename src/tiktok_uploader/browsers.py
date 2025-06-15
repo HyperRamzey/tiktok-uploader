@@ -51,7 +51,6 @@ def get_browser(
             "userAgent": get_user_agent_for_platform(),
             "platform": get_platform_name()
         })
-        })
         
     except Exception as e:
         logger.error("Failed to initialize Chrome browser: %s", e)
