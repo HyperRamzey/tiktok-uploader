@@ -15,10 +15,10 @@ max_description_length = 150
 [paths]
 main = "https://www.tiktok.com/"
 login = "https://www.tiktok.com/login/phone-or-email/email"
-upload = "https://www.tiktok.com/creator-center/upload?lang=en"
+upload = "https://www.tiktok.com/tiktokstudio/upload"
 
 [disguising]
-user-agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Mobile/15E148 Safari/604.1'
+user-agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
 
 [selectors]
 
@@ -32,28 +32,28 @@ user-agent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebK
 	cookie_of_interest = "sessionid"
 	
 	[selectors.upload]
-	iframe = "//iframe"
+	iframe = ""
 	
 	split_window = "//button[./div[text()='Not now']]"
-	upload = "//input[@type='file'] | //input[contains(@accept, 'video')]"
-	upload_finished = "//div[contains(@class, 'btn-cancel')]"
- 	upload_confirmation = "//div[@title]"
- 	processing = "//div[contains(@class, 'processing')] | //div[contains(@class, 'uploading')] | //div[contains(text(), 'Processing')] | //div[contains(text(), 'Uploading')] | //div[contains(@class, 'progress')]"
- 	complete = "//div[contains(@class, 'complete')] | //div[contains(@class, 'success')] | //div[contains(text(), 'Complete')] | //div[contains(text(), 'Success')]"
-	description = "//div[@contenteditable='true']"
+	upload = "//input[@type='file']"
+	upload_finished = "//div[contains(text(), 'Your videos are being uploaded')]"
+ 	upload_confirmation = "//div[contains(text(), 'uploaded successfully') or contains(text(), 'upload complete') or contains(text(), 'uploaded successfully')]"
+ 	processing = "//div[contains(text(), 'Uploading') or contains(text(), 'Processing') or contains(text(), 'upload in progress')]"
+ 	complete = "//div[contains(text(), 'Upload complete') or contains(text(), 'Successfully uploaded') or contains(text(), 'upload complete')]"
+	description = "div[data-tux-text-input-wrapper='true'], div.public-DraftEditor-content[contenteditable='true'], div[contenteditable='true'][role='textbox'], div[contenteditable='true'], div.public-DraftStyleDefault-block, div[data-e2e='caption-input'], div[aria-label='Caption']"
 
-	visibility = "//div[@class='tiktok-select-selector']"
-	options = ["Public", "Friends", "Private"]
+	visibility = "div[data-tux-select-control='true']"
+	options = ["Public", "Friends", "Private (only you can see this video)"]
 
 	mention_box = "//div[contains(@class, 'mention-list-popover')]"
 	mention_box_user_id = "//span[contains(@class, 'user-id')]"
 
-	comment = "//label[.='Comment']/following-sibling::div/input | //div[contains(text(), 'Comments')]//following::input[@type='checkbox']"
-	duet = "//label[.='Duet']/following-sibling::div/input | //div[contains(text(), 'Duet')]//following::input[@type='checkbox']"
-	stitch = "//label[.='Stitch']/following-sibling::div/input | //div[contains(text(), 'Stitch')]//following::input[@type='checkbox']"
+	comment = "input[id='comment-switch'], label:has(div:contains('comment'):not(input:checked))"
+	duet = "input[id='duet-switch'], label:has(div:contains('duet'):not(input:checked)), button[role='switch'][aria-label*='duet']"
+	stitch = "input[id='stitch-switch'], label:has(div:contains('stitch'):not(input:checked)), button[role='switch'][aria-label*='stitch']"
 
-	post = "//button[@data-e2e='post_video_button'] | //button[contains(text(), 'Post')] | //button[contains(@class, 'post')] | //button[@type='submit']"
-	post_confirmation = "//div[contains(text(), 'Your video has been uploaded') or contains(text(), '视频已发布') or contains(@class, 'success') or contains(@class, 'complete') or contains(text(), 'Posted')]"
+	post = "button[data-e2e='post_video_button'], button[data-e2e='publish-button']"
+	post_confirmation = "//h2[contains(text(), 'uploaded successfully')] | //div[contains(text(), 'uploaded successfully')] | //div[contains(text(), 'upload complete')]"
 
 	[selectors.upload.cookies_banner]
 		banner = "tiktok-cookie-banner"
