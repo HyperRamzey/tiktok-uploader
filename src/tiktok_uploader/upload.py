@@ -30,6 +30,7 @@ from tiktok_uploader.utils import (
     clean_description,
     truncate_string,
     get_cookies,
+    manage_screenshots,
 )
 from tiktok_uploader.proxy_auth_extension import proxy_is_working
 
@@ -200,7 +201,7 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                         screenshot_path = (
                             f"description_field_search_{int(time.time())}.png"
                         )
-                        driver.save_screenshot(screenshot_path)
+                        driver.save_screenshot(manage_screenshots(screenshot_path))
                         logger.info(f"Debug screenshot saved to {screenshot_path}")
                     except Exception as ss_err:
                         logger.warning(f"Could not save debug screenshot: {ss_err}")
@@ -504,7 +505,7 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                 logger.info(green("Upload confirmed successful!"))
                 try:
                     screenshot_path = f"upload_success_{int(time.time())}.png"
-                    driver.save_screenshot(screenshot_path)
+                    driver.save_screenshot(manage_screenshots(screenshot_path))
                     logger.info(f"Success screenshot saved to {screenshot_path}")
                 except Exception:
                     pass
@@ -597,7 +598,7 @@ def upload_videos(
                 if headless and driver:
                     try:
                         screenshot_path = f"error_screenshot_{int(time.time())}.png"
-                        driver.save_screenshot(screenshot_path)
+                        driver.save_screenshot(manage_screenshots(screenshot_path))
                         logger.info(f"Error screenshot saved to {screenshot_path}")
                     except:
                         pass

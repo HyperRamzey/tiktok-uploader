@@ -3,6 +3,8 @@ import time
 import random
 import json
 import logging
+import glob
+import os.path
 from typing import List, Optional, Callable, Any, Dict
 from functools import lru_cache, wraps
 
@@ -35,6 +37,48 @@ def yellow(to_yellow: str) -> str:
 
 def underline(to_underline: str) -> str:
     return to_underline
+
+
+def manage_screenshots(new_screenshot_path: str, max_screenshots: int = 5) -> str:
+    """
+    Saves a new screenshot and maintains only the most recent screenshots up to max_screenshots.
+    
+    Args:
+        new_screenshot_path: Path where the new screenshot should be saved
+        max_screenshots: Maximum number of screenshots to keep
+        
+    Returns:
+        The path of the saved screenshot
+    """
+    # Get all existing screenshot files
+    screenshot_patterns = [
+        "description_field_search_*.png", 
+        "upload_success_*.png", 
+        "error_screenshot_*.png"
+    ]
+    
+    all_screenshots = []
+    for pattern in screenshot_patterns:
+        all_screenshots.extend(glob.glob(pattern))
+    
+    # Sort by modification time (most recent last)
+    all_screenshots.sort(key=lambda f: os.path.getmtime(f))
+    
+    # If we have too many screenshots, remove the oldest ones
+    if len(all_screenshots) >= max_screenshots:
+        # Calculate how many to remove
+        to_remove = len(all_screenshots) - max_screenshots + 1  # +1 for the new one
+        
+        # Remove oldest screenshots
+        for i in range(to_remove):
+            if i < len(all_screenshots):
+                try:
+                    os.remove(all_screenshots[i])
+                    logger.debug(f"Removed old screenshot: {all_screenshots[i]}")
+                except Exception as e:
+                    logger.warning(f"Could not remove old screenshot {all_screenshots[i]}: {e}")
+    
+    return new_screenshot_path
 
 
 def safe_filename(filename: str) -> str:
