@@ -92,11 +92,21 @@ def chrome_defaults(
     headless: bool = False,
     browser_data_dir: Optional[str] = None,
 ) -> None:
+    # Enhanced anti-detection measures
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option(
         "excludeSwitches", ["enable-automation", "enable-logging"]
     )
     options.add_experimental_option("useAutomationExtension", False)
+    
+    # Stealth mode optimizations
+    options.add_experimental_option("prefs", {
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+        "webrtc.ip_handling_policy": "disable_non_proxied_udp",
+        "webrtc.multiple_routes_enabled": False,
+        "webrtc.nonproxied_udp_enabled": False,
+    })
 
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-notifications")
@@ -109,9 +119,56 @@ def chrome_defaults(
     options.add_argument("--disable-features=IsolateOrigins,site-per-process")
     options.add_argument("--use-fake-ui-for-media-stream")
     
+    # Additional stability options
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-backgrounding-occluded-windows")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-features=TranslateUI")
+    options.add_argument("--disable-ipc-flooding-protection")
+    options.add_argument("--disable-client-side-phishing-detection")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-hang-monitor")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-prompt-on-repost")
+    options.add_argument("--disable-sync")
+    options.add_argument("--log-level=3")  # Reduce Chrome logging
+    options.add_argument("--silent")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-default-browser-check")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-background-mode")
+    options.add_argument("--disable-plugins")
+    options.add_argument("--disable-java")
+    options.add_argument("--aggressive-cache-discard")
+    options.add_argument("--disable-plugins-discovery")
+    options.add_argument("--disable-prerender-local-predictor")
+    options.add_argument("--disable-threaded-animation")
+    options.add_argument("--disable-threaded-scrolling")
+    options.add_argument("--disable-in-process-stack-traces")
+    options.add_argument("--disable-histogram-customizer")
+    options.add_argument("--disable-gl-extensions")
+    options.add_argument("--disable-composited-antialiasing")
+    options.add_argument("--disable-canvas-aa")
+    options.add_argument("--disable-3d-apis")
+    options.add_argument("--disable-accelerated-2d-canvas")
+    options.add_argument("--disable-accelerated-jpeg-decoding")
+    options.add_argument("--disable-accelerated-mjpeg-decode")
+    options.add_argument("--disable-app-list-dismiss-on-blur")
+    options.add_argument("--disable-accelerated-video-decode")
+    
+    # Set page load strategy
+    options.set_capability('pageLoadStrategy', 'eager')  # Don't wait for all resources
+    
+    # Randomize window size for fingerprinting
     if headless:
         options.add_argument("--headless")
-        options.add_argument("--window-size=1920,1080")
+        # Randomize viewport size slightly to avoid detection
+        width = random.randint(1900, 1940)
+        height = random.randint(1060, 1100)
+        options.add_argument(f"--window-size={width},{height}")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-first-run")
     else:
         options.add_argument("--start-maximized")
 

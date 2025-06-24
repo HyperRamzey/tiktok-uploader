@@ -5,6 +5,7 @@ import threading
 import os
 import re
 import logging
+import random
 
 from tqdm import tqdm
 
@@ -16,6 +17,7 @@ from selenium.common.exceptions import (
     TimeoutException,
     NoSuchElementException,
     StaleElementReferenceException,
+    WebDriverException,
 )
 
 from tiktok_uploader.browsers import get_browser
@@ -39,6 +41,27 @@ POST_FINISH_TIMEOUT = 60
 
 
 def upload_video(filename, description, cookies, browser_data_dir=None, headless=True):
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            return _perform_upload(filename, description, cookies, browser_data_dir, headless)
+        except (WebDriverException, TimeoutException) as e:
+            retry_count += 1
+            if retry_count >= max_retries:
+                logger.error(f"Failed after {max_retries} attempts: {e}")
+                return f"Failed after {max_retries} attempts: {str(e)}"
+            
+            wait_time = 2 ** retry_count  # Exponential backoff: 2, 4, 8 seconds
+            logger.warning(f"Upload attempt {retry_count} failed, retrying in {wait_time}s: {e}")
+            time.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Unrecoverable error during upload: {e}")
+            return str(e)
+
+
+def _perform_upload(filename, description, cookies, browser_data_dir, headless):
     try:
         pbar = tqdm(total=100, desc="Uploading video", leave=False)
         pbar.update(10)
@@ -53,8 +76,24 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
         pbar.update(10)
         driver.get(config["paths"]["upload"])
         pbar.update(10)
+        
+        # Add extra wait time for the page to fully load
+        time.sleep(10)
+        
+        # Try to wait for the page to be ready
         try:
-            file_input = _locate_file_input(driver, timeout=60)
+            WebDriverWait(driver, 30).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            logger.info("Page loading completed")
+        except TimeoutException:
+            logger.warning("Page readyState timeout - continuing anyway")
+        
+        # Additional wait for any dynamic content
+        time.sleep(5)
+        
+        try:
+            file_input = _locate_file_input(driver, timeout=120)
             file_input.send_keys(os.path.abspath(filename))
             pbar.update(20)
 
@@ -197,14 +236,6 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
 
                 if description_input is None:
                     time.sleep(2)
-                    try:
-                        screenshot_path = (
-                            f"description_field_search_{int(time.time())}.png"
-                        )
-                        driver.save_screenshot(manage_screenshots(screenshot_path))
-                        logger.info(f"Debug screenshot saved to {screenshot_path}")
-                    except Exception as ss_err:
-                        logger.warning(f"Could not save debug screenshot: {ss_err}")
 
             if description_input is None:
                 raise TimeoutException(
@@ -238,7 +269,15 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                     time.sleep(0.2)
                     description_input.send_keys(Keys.DELETE)
                     time.sleep(0.3)
-                    description_input.send_keys(description)
+                    
+                    # Type description with human-like random delays
+                    for char in description:
+                        description_input.send_keys(char)
+                        # Random typing speed between 50-150ms per character
+                        time.sleep(random.uniform(0.05, 0.15))
+                    
+                    # Random pause after typing, like human reviewing
+                    time.sleep(random.uniform(1, 3))
                     break
                 except StaleElementReferenceException:
                     description_input = None
@@ -252,9 +291,12 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
                 "Using preset TikTok settings - skipping all interactivity modifications"
             )
 
-            for scroll_pos in [400, 600, 800]:
+            # Random scrolling pattern to simulate human behavior
+            scroll_positions = [400, 600, 800]
+            random.shuffle(scroll_positions)
+            for scroll_pos in scroll_positions:
                 driver.execute_script(f"window.scrollTo(0, {scroll_pos});")
-                time.sleep(0.5)
+                time.sleep(random.uniform(0.3, 0.8))
 
             try:
                 post_button_selectors = [
@@ -503,12 +545,6 @@ def upload_video(filename, description, cookies, browser_data_dir=None, headless
 
             if success_detected:
                 logger.info(green("Upload confirmed successful!"))
-                try:
-                    screenshot_path = f"upload_success_{int(time.time())}.png"
-                    driver.save_screenshot(manage_screenshots(screenshot_path))
-                    logger.info(f"Success screenshot saved to {screenshot_path}")
-                except Exception:
-                    pass
             else:
                 elapsed = time.time() - wait_start
                 remaining_wait = max(1, POST_FINISH_TIMEOUT - elapsed)
@@ -595,13 +631,6 @@ def upload_videos(
             except Exception as e:
                 logger.error(red(f"Failed to upload {video.get('path')}: {e}"))
                 failed_videos.append(video)
-                if headless and driver:
-                    try:
-                        screenshot_path = f"error_screenshot_{int(time.time())}.png"
-                        driver.save_screenshot(manage_screenshots(screenshot_path))
-                        logger.info(f"Error screenshot saved to {screenshot_path}")
-                    except:
-                        pass
 
         return failed_videos
 
@@ -652,7 +681,7 @@ def _go_to_upload(driver):
 
 def _set_video(driver, path: str, **kwargs):
     try:
-        upload_input = _locate_file_input(driver, timeout=60)
+        upload_input = _locate_file_input(driver, timeout=120)
         upload_input.send_keys(path)
         WebDriverWait(driver, 20).until(
             EC.presence_of_element_located(
@@ -815,17 +844,79 @@ class FailedToUpload(Exception):
 
 def _locate_file_input(driver, timeout: int = 30):
     """Return a visible <input type='file'> element."""
+    logger.info(f"Attempting to locate file input with {timeout}s timeout")
+    
+    # Multiple strategies to find the file input
+    selectors = [
+        "//input[@type='file']",
+        "//input[@accept]",
+        "//input[contains(@accept, 'video')]",
+        "//input[contains(@class, 'upload')]",
+        "//input[contains(@id, 'upload')]",
+        "//*[@type='file']",
+    ]
+    
+    end_time = time.time() + timeout
+    
+    while time.time() < end_time:
+        for i, selector in enumerate(selectors):
+            try:
+                logger.info(f"Trying selector {i+1}/{len(selectors)}: {selector}")
+                
+                if selector.startswith("//"):
+                    elements = driver.find_elements(By.XPATH, selector)
+                else:
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                
+                for element in elements:
+                    try:
+                        # Make the element visible and interactable
+                        driver.execute_script("arguments[0].style.display = 'block';", element)
+                        driver.execute_script("arguments[0].style.visibility = 'visible';", element)
+                        driver.execute_script("arguments[0].style.height = 'auto';", element)
+                        driver.execute_script("arguments[0].style.width = 'auto';", element)
+                        driver.execute_script("arguments[0].style.opacity = 1;", element)
+                        driver.execute_script("arguments[0].style.position = 'static';", element)
+                        
+                        # Test if element is accessible
+                        if element.is_enabled():
+                            logger.info(f"Found working file input with selector: {selector}")
+                            return element
+                    except Exception as e:
+                        logger.debug(f"Element not usable: {e}")
+                        continue
+                        
+            except Exception as e:
+                logger.debug(f"Selector failed: {e}")
+                continue
+        
+        # Wait a bit before trying again
+        time.sleep(2)
+        logger.info("Retrying file input detection...")
+    
+    # Last resort: try JavaScript injection
     try:
-        file_input = WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
-        )
-        driver.execute_script("arguments[0].style.display = 'block';", file_input)
-        driver.execute_script("arguments[0].style.visibility = 'visible';", file_input)
-        driver.execute_script("arguments[0].style.height = '1px';", file_input)
-        driver.execute_script("arguments[0].style.width = '1px';", file_input)
-        driver.execute_script("arguments[0].style.opacity = 1;", file_input)
-        return file_input
-    except TimeoutException:
-        raise TimeoutException(
-            "Could not locate <input type='file'> within given timeout"
-        )
+        logger.info("Attempting JavaScript fallback to create file input")
+        script = """
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.style.position = 'absolute';
+        input.style.top = '0px';
+        input.style.left = '0px';
+        input.style.width = '100px';
+        input.style.height = '100px';
+        input.style.opacity = 1;
+        input.style.zIndex = 9999;
+        document.body.appendChild(input);
+        return input;
+        """
+        file_input = driver.execute_script(script)
+        if file_input:
+            logger.info("Successfully created file input via JavaScript")
+            return file_input
+    except Exception as e:
+        logger.error(f"JavaScript fallback failed: {e}")
+    
+    raise TimeoutException(
+        f"Could not locate <input type='file'> within {timeout} seconds using any strategy"
+    )
