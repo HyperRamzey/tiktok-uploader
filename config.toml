@@ -1,0 +1,60 @@
+headless = true
+quit_on_end = false
+valid_path_names = ["path", "filename", "video", "video_path"]
+valid_descriptions = ["description", "desc", "caption"]
+implicit_wait = 10
+explicit_wait = 120
+uploading_wait = 300
+
+add_hashtag_wait = 10
+
+supported_file_types = ["mp4", "mov", "avi", "wmv", "flv", "webm", "mkv", "m4v", "3gp", "3g2", "gif", "ts"]
+
+max_description_length = 150
+
+[paths]
+main = "https://www.tiktok.com/"
+login = "https://www.tiktok.com/login/phone-or-email/email"
+upload = "https://www.tiktok.com/tiktokstudio/upload"
+
+[disguising]
+user-agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+
+[selectors]
+
+	[selectors.login]
+	username_field = "//input[@name='username' or @name='email']"
+	password_field = "//input[@type='password']"
+	login_button = "//button[@type='submit' or contains(text(), 'Log in')]"
+	
+	alert_user_if_failed = true
+	
+	cookie_of_interest = "sessionid"
+	
+	[selectors.upload]
+	iframe = ""
+	
+	split_window = "//button[./div[text()='Not now']]"
+	upload = "//input[@type='file']"
+	upload_finished = "//div[contains(text(), 'Your videos are being uploaded')]"
+ 	upload_confirmation = "//div[contains(text(), 'uploaded successfully') or contains(text(), 'upload complete') or contains(text(), 'uploaded successfully')]"
+ 	processing = "//div[contains(text(), 'Uploading') or contains(text(), 'Processing') or contains(text(), 'upload in progress')]"
+ 	complete = "//div[contains(text(), 'Upload complete') or contains(text(), 'Successfully uploaded') or contains(text(), 'upload complete')]"
+	description = "div[data-tux-text-input-wrapper='true'], div.public-DraftEditor-content[contenteditable='true'], div[contenteditable='true'][role='textbox'], div[contenteditable='true'], div.public-DraftStyleDefault-block, div[data-e2e='caption-input'], div[aria-label='Caption']"
+
+	visibility = "div[data-tux-select-control='true']"
+	options = ["Public", "Friends", "Private (only you can see this video)"]
+
+	mention_box = "//div[contains(@class, 'mention-list-popover')]"
+	mention_box_user_id = "//span[contains(@class, 'user-id')]"
+
+	comment = "input[id='comment-switch'], label:has(div:contains('comment'):not(input:checked))"
+	duet = "input[id='duet-switch'], label:has(div:contains('duet'):not(input:checked)), button[role='switch'][aria-label*='duet']"
+	stitch = "input[id='stitch-switch'], label:has(div:contains('stitch'):not(input:checked)), button[role='switch'][aria-label*='stitch']"
+
+	post = "button[data-e2e='post_video_button'], button[data-e2e='publish-button']"
+	post_confirmation = "//h2[contains(text(), 'uploaded successfully')] | //div[contains(text(), 'uploaded successfully')] | //div[contains(text(), 'upload complete')]"
+
+	[selectors.upload.cookies_banner]
+		banner = "tiktok-cookie-banner"
+		button = "div.button-wrapper"
