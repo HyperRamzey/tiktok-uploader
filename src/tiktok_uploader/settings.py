@@ -77,8 +77,10 @@ class UploadSelectors(StrictModel):
     mention_box_user_id: str
 
     comment: str
-    duet: str
-    stitch: str
+    reuse_of_content: str
+    # Deprecated: Duet/Stitch merged into single "Reuse of content" checkbox
+    duet: str = ""
+    stitch: str = ""
 
     post: str
     post_now: str

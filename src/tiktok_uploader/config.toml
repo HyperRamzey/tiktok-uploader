@@ -56,8 +56,10 @@ user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 	mention_box_user_id = "//span[contains(@class, 'user-id')]"
 
 	comment = "//label[.='Comment']/following-sibling::div/input"
-	duet = "//label[.='Duet']/following-sibling::div/input"
-	stitch = "//label[.='Stitch']/following-sibling::div/input"
+	reuse_of_content = "//label[.='Reuse of content']/following-sibling::div/input"
+	# Deprecated: Duet/Stitch merged into single "Reuse of content" checkbox in TikTok Studio
+	duet = "//label[.='Reuse of content']/following-sibling::div/input"
+	stitch = "//label[.='Reuse of content']/following-sibling::div/input"
 
 	post = "//button[@data-e2e='post_video_button']"
 	post_now = "//button[.//div[text()='Post now']]"

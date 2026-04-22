@@ -13,8 +13,10 @@ class ProxyDict(TypedDict, total=False):
 class VideoDict(TypedDict, total=False):
     path: str
     video: str
-    stitch: bool
-    duet: bool
+    reuse_of_content: bool
+    # Deprecated: Duet/Stitch merged into single "Reuse of content" checkbox
+    stitch: bool = True
+    duet: bool = True
     description: str
     schedule: datetime
     product_id: str

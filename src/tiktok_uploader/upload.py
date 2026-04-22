@@ -556,27 +556,45 @@ def _set_interactivity(
     comment: bool = True,
     stitch: bool = True,
     duet: bool = True,
+    reuse_of_content: bool | None = None,
     *args,
     **kwargs,
 ) -> None:
     """
-    Sets the interactivity settings of the video
+    Sets the interactivity settings of the video on TikTok Studio (Creator Center).
+
+    The new TikTok Studio UI has:
+    - "Comment" checkbox (unchanged from old UI)
+    - "Reuse of content" checkbox (replaces separate Duet + Stitch)
+    - Both are inside a collapsible "Allow users to:" section
+
+    For backward compatibility: if stitch or duet is passed (not None),
+    reuse_of_content defaults to their value (both should be the same).
     """
     try:
         logger.debug(green("Setting interactivity settings"))
 
-        comment_box = page.locator(f"xpath={config.selectors.upload.comment}")
-        stitch_box = page.locator(f"xpath={config.selectors.upload.stitch}")
-        duet_box = page.locator(f"xpath={config.selectors.upload.duet}")
+        # 1. Click "Show more" to expand the "Allow users to:" section
+        show_more_btn = page.locator("xpath=//button[contains(., 'Show more')]")
+        if show_more_btn.is_visible(timeout=5000):
+            show_more_btn.click()
+            time.sleep(1)
 
+        # 2. Resolve reuse_of_content from deprecated params
+        if reuse_of_content is None:
+            reuse_of_content = stitch or duet
+
+        # 3. Set Comment checkbox
+        comment_box = page.locator(f"xpath={config.selectors.upload.comment}")
         if comment ^ comment_box.is_checked():
             comment_box.click()
 
-        if stitch ^ stitch_box.is_checked():
-            stitch_box.click()
+        # 4. Set Reuse of content checkbox (covers Duet + Stitch)
+        reuse_box = page.locator(f"xpath={config.selectors.upload.reuse_of_content}")
+        if reuse_of_content ^ reuse_box.is_checked():
+            reuse_box.click()
 
-        if duet ^ duet_box.is_checked():
-            duet_box.click()
+        logger.debug(green("Successfully set interactivity settings"))
 
     except Exception as _:
         logger.error("Failed to set interactivity settings")
